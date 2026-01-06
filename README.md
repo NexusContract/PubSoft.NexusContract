@@ -35,7 +35,7 @@
 | **1. 验证 (Validate)** | 静态契约合法性自检 | `ContractValidator` | **NXC1xx** |
 | **2. 投影 (Project)** | 语义转义为协议字典 | `ProjectionEngine` | **NXC2xx** |
 | **3. 执行 (Execute)** | 物理签名、编码与网络交互 | `IProvider` | **Transport** |
-| **4. 回填 (Hydrate)** | 响应结果的对称还原 | `HydrationEngine` | **NXC3xx** |
+| **4. 回填 (Hydrate)** | 响应结果的对称还原 | `ResponseHydrationEngine` | **NXC3xx** |
 
 ---
 
@@ -61,15 +61,12 @@ PubSoft.NexusContract/
 │   ├── NexusContract.Client/        # 客户端 SDK (net10.0)
 │   │   └── Elite Channel & MAF Integration
 │   └── Providers/
-│       ├── NexusContract.Providers.UnionPay/
-│       ├── NexusContract.Providers.Alipay/
-│       └── ...其他支付方提供商
+│       └── NexusContract.Providers.Alipay/
 ├── contracts/                       # 业务契约 (纯净 POCO)
 │   └── PubSoft.UnionPay.Contract/
 ├── examples/                        # 示例程序
 └── docs/                            # 架构设计与实现章法
-    └── DESIGN.md（架构禁忌与约束）
-    └── ARCHITECTURE.md（实现细节与组件）
+    └── IMPLEMENTATION.md（实现细节与组件）
 ```
 
 ---
@@ -173,9 +170,9 @@ public class OrderRequest : IApiRequest<OrderResponse>
 
 ## 📚 更多信息
 
-* **架构宪法**：查看 `src/NexusContract.Abstractions/DESIGN.md`（设计禁忌与物理约束）
-* **实现章法**：查看 `docs/ARCHITECTURE.md`（四阶段管道、组件详解、场景案例）
-* **示例程序**：运行 `dotnet run --project examples/NexusContract.Examples`
+* **架构宪法**：查看 `src/NexusContract.Abstractions/CONSTITUTION.md`（设计禁忌与物理约束）
+* **实现章法**：查看 `docs/IMPLEMENTATION.md`（四阶段管道、组件详解、场景案例）
+* **示例程序**：运行 `dotnet run --project examples/NexusContract.Examples/NexusContract.Examples.csproj`
 * **代码注释**：所有关键决策已标注 【决策】【规则】【模式】标签
 
 ---
