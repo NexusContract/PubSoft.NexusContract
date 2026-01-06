@@ -1,0 +1,64 @@
+// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Licensed under the MIT License. See LICENSE in the project root for license information.
+
+using System;
+using FastEndpoints;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using PubSoft.NexusContract.Providers.Alipay;
+using PubSoft.NexusContract.Providers.Alipay.ServiceConfiguration;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// ==================== 步骤1：注册支付宝提供商 ====================
+builder.Services.AddAlipayProvider(new AlipayProviderConfig
+{
+    AppId = builder.Configuration["Alipay:AppId"] ?? "2021...",
+    MerchantId = builder.Configuration["Alipay:MerchantId"] ?? "2088...",
+    PrivateKey = builder.Configuration["Alipay:PrivateKey"] ?? "MIIEvQIBA...",
+    AlipayPublicKey = builder.Configuration["Alipay:AlipayPublicKey"] ?? "MIIBIjANBgkqh...",
+    ApiGateway = new Uri("https://openapi.alipay.com/"),
+    UseSandbox = builder.Configuration.GetValue<bool>("Alipay:UseSandbox"),
+    RequestTimeout = TimeSpan.FromSeconds(30)
+});
+
+// ==================== 步骤2：注册FastEndpoints ====================
+builder.Services.AddFastEndpoints();
+
+var app = builder.Build();
+
+// ==================== 步骤3：配置中间件 ====================
+app.UseFastEndpoints(config =>
+{
+    config.Endpoints.RoutePrefix = "api/alipay";
+});
+
+// ==================== 步骤4：测试端点 ====================
+app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
+
+app.Run();
+
+/*
+ * 支付宝API使用示例：
+ * 
+ * POST /api/alipay/alipay.trade.pay
+ * Content-Type: application/json
+ * 
+ * {
+ *   "merchantOrderNo": "2024001",
+ *   "totalAmount": 100.00,
+ *   "subject": "测试订单",
+ *   "scene": "bar_code",
+ *   "buyerId": "2088...",
+ *   "authCode": "123456..."
+ * }
+ * 
+ * 响应：
+ * {
+ *   "tradeNo": "2024...",
+ *   "outTradeNo": "2024001",
+ *   "tradeStatus": "TRADE_SUCCESS",
+ *   "receiptAmount": 100.00
+ * }
+ */

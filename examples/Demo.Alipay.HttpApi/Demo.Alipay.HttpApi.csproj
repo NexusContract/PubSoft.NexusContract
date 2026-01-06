@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Demo.Alipay.HttpApi</RootNamespace>
+    <AssemblyName>Demo.Alipay.HttpApi</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FastEndpoints" Version="7.1.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\NexusContract.Core\NexusContract.Core.csproj" />
+    <ProjectReference Include="..\..\src\Providers\NexusContract.Providers.Alipay\NexusContract.Providers.Alipay.csproj" />
+    <ProjectReference Include="..\Demo.Alipay.Contract\Demo.Alipay.Contract.csproj" />
+  </ItemGroup>
+
+</Project>

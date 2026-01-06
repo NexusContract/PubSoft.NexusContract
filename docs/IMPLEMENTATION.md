@@ -145,62 +145,64 @@ Naming Policy 有三种内置实现：
 
 这是最重要的部分：**怎么把这套机制组装到 Provider 里**。
 
-### 全流程示例：支付宝支付请求
+### 全流程示例：银联支付请求
 
 ```csharp
-// 1. 定义契约类
-[ApiOperation("alipay.trade.pay", HttpVerb.POST)]
-public class AlipayPayRequest : IApiRequest<AlipayPayResponse>
+// 1. 定义契约类（基于实际 contracts/PubSoft.UnionPay.Contract）
+[ApiOperation("unionpay.trade.pay", HttpVerb.POST, Version = "5.1.0")]
+public class PaymentRequest : IApiRequest<PaymentResponse>
 {
-    [ApiField("merchant_id")]
-    public string MerchantId { get; set; }
+    [ApiField(IsRequired = true, Description = "商户系统订单号，必须唯一")]
+    public string MerchantOrderId { get; set; }
     
-    [ApiField("amount")]
-    public decimal Amount { get; set; }
+    [ApiField("txn_amt", IsRequired = true, Description = "交易金额，单位：分")]
+    public long Amount { get; set; }
     
-    [ApiField("card_no", IsEncrypted = true)]
+    [ApiField("card_no", IsEncrypted = true, IsRequired = true, Description = "支付银行卡号")]
     public string CardNumber { get; set; }
     
-    [ApiField("subject")]
-    public string Subject { get; set; }
+    [ApiField("goods_desc", Description = "商品或订单描述")]
+    public string GoodsDescription { get; set; }
 }
 
 // 2. 创建 Provider，配置 Gateway
-public class AlipayProvider
+public class UnionPayProvider : AlipayProvider  // 继承基础Provider
 {
-    private readonly NexusGateway _gateway;
+    public UnionPayProvider(AlipayProviderConfig config, NexusGateway gateway) 
+        : base(config, gateway) { }
     
-    public AlipayProvider(string appId, string appSecret, IEncryptor encryptor)
+    // 3. 执行请求（实际实现HTTP调用）
+    public async Task<PaymentResponse> PayAsync(PaymentRequest request)
     {
-        _gateway = new NexusGateway(
-            new SnakeCaseNamingPolicy(),
-            encryptor,
-            new AlipayHttpExecutor(appId, appSecret)
-        );
-    }
-    
-    // 3. 执行请求
-    public async Task<AlipayPayResponse> PayAsync(AlipayPayRequest request)
-    {
+        // 定义HTTP执行器（实际网络调用）
+        async Task<IDictionary<string, object>> HttpExecutor(
+            CoreExecutionContext context, 
+            IDictionary<string, object> projectedRequest)
+        {
+            // 这里实现实际的HTTP调用、签名、加密等
+            // 使用 projectedRequest 中的字段发送到银联API
+            // 返回解析后的响应字典
+            
+            // 示例（伪代码）：
+            using var httpClient = new HttpClient();
+            var response = await httpClient.PostAsJsonAsync("https://api.unionpay.com/pay", projectedRequest);
+            return await response.Content.ReadFromJsonAsync<IDictionary<string, object>>();
+        }
+        
         // Gateway 会自动执行四阶段管道：
-        // 1️⃣  验证：ContractValidator 检查 NXC1xx-3xx
-        // 2️⃣  投影：ProjectionEngine 将 request 转为 Dictionary
-        // 3️⃣  执行：调用 AlipayHttpExecutor，发送签名后的请求
-        // 4️⃣  回填：ResponseHydrationEngine 将 response 转为强类型
-        return await _gateway.ExecuteAsync<AlipayPayRequest, AlipayPayResponse>(request);
+        // 1️⃣ 验证：ContractValidator 检查 NXC1xx-3xx
+        // 2️⃣ 投影：ProjectionEngine 将 request 转为 Dictionary
+        // 3️⃣ 执行：调用 HttpExecutor，发送签名后的请求
+        // 4️⃣ 回填：ResponseHydrationEngine 将 response 转为强类型
+        return await ExecuteAsync(request, HttpExecutor);
     }
 }
 
-// 4. FastEndpoints 集成
-public class AlipayPayEndpoint : NexusProxyEndpoint<AlipayPayRequest, AlipayPayResponse>
+// 4. FastEndpoints 集成（路由由Provider管理）
+public class PaymentEndpoint : NexusProxyEndpoint<PaymentRequest>
 {
-    public override void Configure()
-    {
-        Post("/alipay/pay");
-        AllowAnonymous();
-    }
-    
-    // 就这样！NexusProxyEndpoint 的 Handle 方法已经定义好了
+    // 路由配置在Provider层面实现，不需要每个Endpoint重复定义
+    // Provider会根据[ApiOperation]自动映射路由
 }
 ```
 

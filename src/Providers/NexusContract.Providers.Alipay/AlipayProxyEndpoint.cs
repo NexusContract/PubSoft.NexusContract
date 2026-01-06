@@ -50,7 +50,7 @@ namespace PubSoft.NexusContract.Providers.Alipay.Endpoints
                     "AlipayProvider not initialized. Call Initialize() before execution.");
 
             return await AlipayProvider
-                .ExecuteAsync(request, DefaultExecutor, cancellationToken)
+                .ExecuteAsync(request, cancellationToken)
                 .ConfigureAwait(false);
         }
 
