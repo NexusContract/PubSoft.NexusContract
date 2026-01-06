@@ -31,8 +31,12 @@ dotnet run
 
 ### 2. 测试API
 
+> 注意：本示例采用契约驱动路由，Contract 中的 `ApiOperation`（例如 `alipay.trade.create`）
+> 会被转换为 REST 路由：`/v3/alipay/{methodName}`（例如 `alipay.trade.create` → `/v3/alipay/trade/create`）。
+
 ```bash
-curl -X POST http://localhost:5000/api/alipay/alipay.trade.pay \
+# 交易支付
+curl -X POST http://localhost:5000/v3/alipay/trade/pay \
   -H "Content-Type: application/json" \
   -d '{
     "merchantOrderNo": "2024001",
@@ -40,6 +44,15 @@ curl -X POST http://localhost:5000/api/alipay/alipay.trade.pay \
     "subject": "测试订单",
     "scene": "bar_code",
     "authCode": "285015833990941919"
+  }'
+
+# 交易创建
+curl -X POST http://localhost:5000/v3/alipay/trade/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "merchantOrderNo": "2024002",
+    "totalAmount": 88.88,
+    "subject": "测试订单2"
   }'
 ```
 
@@ -74,20 +87,20 @@ public class TradeRefundRequest : IApiRequest<TradeRefundResponse>
 
 ### 步骤2：在Demo.Alipay.HttpApi中添加新Endpoint
 
+在新版本中使用 `AlipayEndpointBase<TRequest>`（单泛型，响应类型从契约 `IApiRequest<TResponse>` 推断）：
+
 ```csharp
-public class TradeRefundEndpoint : AlipayProxyEndpoint<TradeRefundRequest>
+public class TradeRefundEndpoint : AlipayEndpointBase<TradeRefundRequest>
 {
-    private readonly AlipayProvider _alipayProvider;
-    
-    public TradeRefundEndpoint(AlipayProvider provider, NexusGateway gateway)
-        : base(gateway) => _alipayProvider = provider;
-    
-    public async Task<TradeRefundResponse> HandleAsync(TradeRefundRequest req)
-        => await _alipayProvider.ExecuteAsync(req);
+  public TradeRefundEndpoint(AlipayProvider provider) : base(provider) { }
 }
 ```
 
-完成！无需修改Provider。
+运行时行为：
+- 路由自动由 `ApiOperation` 决定并转换为 `/v3/alipay/{method}`。
+- Provider 调用仍然使用支付宝的 method 参数（例如 `method=alipay.trade.refund`）。
+
+完成！无需修改 Provider 或重复声明响应类型。
 
 ## 关键特点
 
