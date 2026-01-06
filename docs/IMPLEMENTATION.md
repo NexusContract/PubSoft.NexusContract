@@ -17,17 +17,17 @@
         └─────────┬─────────┘
                   │
         ┌─────────▼─────────┐
-        │   阶段2: 投影      │  ← ProjectionEngine + ExpressionTreeProjector
+        │   阶段2: 投影      │  ← ProjectionEngine
         │  (POCO→Dict)      │     + PropertyAuditResult (约束检查)
         └─────────┬─────────┘
                   │
         ┌─────────▼─────────┐
         │   阶段3: 执行      │  ← Provider.Execute() (HTTP + Signing)
-        │ (HTTP + Signing)  │     + HighPerformanceJsonHandler
+        │ (HTTP + Signing)  │
         └─────────┬─────────┘
                   │
         ┌─────────▼─────────┐
-        │   阶段4: 回填      │  ← ResponseHydrationEngine + ExpressionTreeHydrator
+        │   阶段4: 回填      │  ← ResponseHydrationEngine
         │  (Dict→POCO)      │     + 强制类型纠偏
         └─────────┬─────────┘
                   │
@@ -38,11 +38,11 @@
 
 ## 🔍 核心概念：六大组件的工程逻辑
 
-### 1. ReflectionCache + FrozenMetadataRegistry（元数据冻结）
+### 1. ReflectionCache（元数据冻结）
 
 **工程逻辑**：
 - **ReflectionCache**：启动时，对每个 Contract 进行反射一次，提取 Attribute 元数据并缓存（ConcurrentDictionary）。首次 O(n)，后续 O(1)。
-- **FrozenMetadataRegistry**：将全量元数据冻结为 FrozenDictionary，让 400 TPS 的高频查询完全零损耗。
+- 将全量元数据冻结为高效缓存，让 400 TPS 的高频查询完全零损耗。
 
 **手感**：为什么要这样做？
 ```
@@ -50,7 +50,7 @@
 方案 B（我们的做法）：启动一次反射 → 后续 O(1) 缓存查询 → P50 = P99 无波动
 ```
 
-参考：[src/NexusContract.Core/Reflection/ReflectionCache.cs](../../src/NexusContract.Core/Reflection/ReflectionCache.cs) 和 [FrozenMetadataRegistry.cs](../../src/NexusContract.Core/Reflection/FrozenMetadataRegistry.cs)
+参考：[src/NexusContract.Core/Reflection/ReflectionCache.cs](../../src/NexusContract.Core/Reflection/ReflectionCache.cs)
 
 ---
 
@@ -67,11 +67,11 @@
 
 ---
 
-### 3. ProjectionEngine + ExpressionTreeProjector（投影引擎）
+### 3. ProjectionEngine（投影引擎）
 
 **工程逻辑**：
 - **ProjectionEngine**：递归遍历 Contract 对象，应用命名策略和加密。支持嵌套对象和列表，深度限制 3 层。
-- **ExpressionTreeProjector**：将投影逻辑预编译为 Expression Tree，后续调用直接执行编译后的委托，性能等同硬编码。
+- 将投影逻辑预编译为 Expression Tree，后续调用直接执行编译后的委托，性能等同硬编码。
 
 **手感**：为什么要这样做？
 ```
@@ -85,15 +85,15 @@
 - ✅ 强制应用加密和命名策略（无"魔法"）
 - ✅ 必填字段检查（违反者抛 NXC2xx 异常）
 
-参考：[ProjectionEngine.cs](../../src/NexusContract.Core/Projection/ProjectionEngine.cs) 和 [ExpressionTreeProjector.cs](../../src/NexusContract.Core/Projection/ExpressionTreeProjector.cs)
+参考：[ProjectionEngine.cs](../../src/NexusContract.Core/Projection/ProjectionEngine.cs)
 
 ---
 
-### 4️⃣ ResponseHydrationEngine + ExpressionTreeHydrator（回填引擎）【NEW】
+### 4️⃣ ResponseHydrationEngine（回填引擎）【NEW】
 
 **工程逻辑**：
 - **ResponseHydrationEngine**：执行投影的反向流程：Dictionary → POCO。强制类型纠偏（String "100" → Long 100）。
-- **ExpressionTreeHydrator**：同样用 Expression Tree 预编译回填逻辑，避免运行时反射。
+- 同样用 Expression Tree 预编译回填逻辑，避免运行时反射。
 
 **手感**：这是"对称性"的体现。
 
@@ -106,26 +106,11 @@
 回填引擎自动转换，无需业务代码处理。
 ```
 
-参考：[ResponseHydrationEngine.cs](../../src/NexusContract.Core/Hydration/ResponseHydrationEngine.cs) 和 [ExpressionTreeHydrator.cs](../../src/NexusContract.Core/Hydration/ExpressionTreeHydrator.cs)
+参考：[ResponseHydrationEngine.cs](../../src/NexusContract.Core/Hydration/ResponseHydrationEngine.cs)
 
 ---
 
-### 5️⃣ HighPerformanceJsonHandler（UTF-8 直通）【NEW】
-
-**工程逻辑**：
-所有 JSON 序列化都走 UTF-8 字节流，避免 UTF-16 的双倍编码。签名、加密都直接操作 byte[]。
-
-**手感**：为什么不用 ArrayPool？（详见 CONSTITUTION.md 【决策 A-201】）
-```
-ArrayPool 方案：性能快，但内存所有权模糊 → 异步链路中易产生数据串联
-UTF-8 字节流：性能仍然快（.NET 10 优化已极度完善），内存由运行时托管 → 支付系统最需要的"确定性"
-```
-
-参考：[HighPerformanceJsonHandler.cs](../../src/NexusContract.Core/Serialization/HighPerformanceJsonHandler.cs)
-
----
-
-### 6️⃣ NexusGateway + NexusProxyEndpoint（指挥部）【NEW】
+### 5️⃣ NexusGateway + NexusProxyEndpoint（指挥部）【NEW】
 
 **工程逻辑**：
 - **NexusGateway**：协调上述所有组件，执行四阶段管道。
@@ -233,9 +218,9 @@ public class AlipayPayEndpoint : NexusProxyEndpoint<AlipayPayRequest, AlipayPayR
 | 阶段 | 组件 | 复杂度 | 技术手段 | 诊断码 |
 |------|------|--------|---------|--------|
 | 1. 验证 | ContractValidator | **O(1)** | 启动期冻结，运行期秒查询 | NXC1xx |
-| 2. 投影 | ExpressionTreeProjector | **O(n)** | n=字段数，预编译执行 | NXC2xx |
+| 2. 投影 | ProjectionEngine | **O(n)** | n=字段数，预编译执行 | NXC2xx |
 | 3. 执行 | Provider + JsonHandler | **O(n)** | n=字段数，UTF-8 直通 | Transport |
-| 4. 回填 | ExpressionTreeHydrator | **O(n)** | n=响应字段数，强制类型纠偏 | NXC3xx |
+| 4. 回填 | ResponseHydrationEngine | **O(n)** | n=响应字段数，强制类型纠偏 | NXC3xx |
 
 **关键特性**：
 - ✅ **运行期零反射**：元数据在启动期一次性冷冻到 FrozenDictionary
@@ -378,7 +363,7 @@ public string CardNo { get; set; }
 ```
 
 ### Q2：投影性能怎么检查？
-**A**：看 ExpressionTreeProjector 的日志，确保是"预编译执行"而不是"首次编译"。
+**A**：看 ProjectionEngine 的日志，确保是"预编译执行"而不是"首次编译"。
 
 ### Q3：回填时类型转换失败怎么办？
 **A**：ResponseHydrationEngine 会自动转换简单类型（String ↔ Int/Long/Decimal）。如果无法转换，检查三方报文格式是否与 Contract 对齐。
@@ -390,12 +375,11 @@ public string CardNo { get; set; }
 本手册核心：**不讲实现细节，讲工程手感**。
 
 关键理解：
-- ✅ **ReflectionCache/FrozenMetadataRegistry**：启动冻结 → 运行时零反射
+- ✅ **ReflectionCache**：启动冻结 → 运行时零反射
 - ✅ **ContractValidator/Auditor**：Fail-Fast 宪法执法 → 坏契约无法启动
 - ✅ **ProjectionEngine/ExpressionTree**：递归投影 + 预编译 → 微观开销（显著优于直接反射，远小于网络 I/O）
 - ✅ **ResponseHydrationEngine**：对称回填 + 强制类型纠偏 → 多态安全
 - ✅ **NexusGateway/ProxyEndpoint**：四阶段自动化 → 零代码端点
-- ✅ **HighPerformanceJsonHandler**：UTF-8 直通 → 内存确定性
 
 **最后的话**：这套机制的目标不是为了"代码简洁"，而是为了"支付系统的可靠性"。在目标并发与延迟约束下（例如 400 TPS 与可接受的 P99 延迟场景），确定性胜过任何技巧。明确前提能避免误读。
 
