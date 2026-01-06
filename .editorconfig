@@ -1,0 +1,26 @@
+# NexusContract Elite Style Config
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.cs]
+# 【显式性】禁止隐式类型 (var)，除非类型显而易见
+csharp_style_var_for_built_in_types = false:error
+csharp_style_var_when_type_is_apparent = true:suggestion
+
+# 【整洁度】强制 PascalCase 命名
+dotnet_naming_rule.api_properties_must_be_pascal_case.severity = error
+dotnet_naming_symbols.api_properties.applicable_kinds = property
+dotnet_naming_symbols.api_properties.applicable_accessibilities = public
+
+# 【文档性】强制要求公有成员编写 XML 注释
+dotnet_diagnostic.CS1591.severity = error
+
+# 【规范性】强制使用 Primary Constructors (.NET 10 特性)
+csharp_style_prefer_primary_constructors = true:error

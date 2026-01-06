@@ -1,0 +1,41 @@
+# Visual Studio / .NET artifacts
+.vs/
+
+# Build outputs
+bin/
+obj/
+
+# Test results
+TestResults/
+
+# Rider
+.idea/
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+packages/
+
+# Build results
+*.log
+
+# Visual Studio Code
+.vscode/
+
+# BenchmarkDotNet results
+BenchmarkDotNet.Artifacts/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Publish output
+publish/
+
+# Temporary files
+*.tmp

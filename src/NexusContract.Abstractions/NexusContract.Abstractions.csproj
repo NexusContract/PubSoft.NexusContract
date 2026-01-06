@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>PubSoft.NexusContract.Abstractions</RootNamespace>
+    <AssemblyName>PubSoft.NexusContract.Abstractions</AssemblyName>
+    <Version>1.0.0</Version>
+    <Description>Kernelized Contract Integration (KCI) Pattern - Pure Abstractions Layer</Description>
+    <Authors>PubSoft.NexusContract</Authors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

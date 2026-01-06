@@ -1,0 +1,336 @@
+// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Licensed under the MIT License. See LICENSE in the project root for license information.
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+#nullable enable
+using PubSoft.NexusContract.Abstractions.Configuration;
+using PubSoft.NexusContract.Abstractions.Exceptions;
+using PubSoft.NexusContract.Abstractions.Policies;
+using PubSoft.NexusContract.Abstractions.Security;
+using PubSoft.NexusContract.Core.Reflection;
+using PubSoft.NexusContract.Core.Utilities;
+
+namespace PubSoft.NexusContract.Core.Hydration
+{
+    /// <summary>
+    /// 响应回填引擎（Response Hydration Engine）
+    /// 
+    /// 核心公式：Dictionary (协议表示) --[ResponseHydrationEngine]--> 强类型 Response
+    /// 
+    /// 职责：
+    /// 1. 反向投影：将三方返回的 Dictionary 填充到强类型对象
+    /// 2. 对称解密：自动解密 IsEncrypted=true 的字段
+    /// 3. 脏数据清洗：通过强力类型转换处理 API 返回的"类型混乱"
+    /// 4. 精准定位：出错时提供完整路径和诊断码（NXC3xx）
+    /// 
+    /// 设计原则：
+    /// - 与 ProjectionEngine 完全对称（出入互为镜像）
+    /// - 物理边界感知（MaxNestingDepth, MaxCollectionSize）
+    /// - 强力容错能力（自动类型转换、解密、递归）
+    /// </summary>
+    public sealed class ResponseHydrationEngine
+    {
+        private readonly INamingPolicy _namingPolicy;
+        private readonly IDecryptor? _decryptor;
+
+        public ResponseHydrationEngine(INamingPolicy namingPolicy, IDecryptor? decryptor = null)
+        {
+            _namingPolicy = namingPolicy ?? throw new ArgumentNullException(nameof(namingPolicy));
+            _decryptor = decryptor;
+        }
+
+        /// <summary>
+        /// 将 Dictionary 回填到强类型 Response
+        /// 性能优化：优先使用预编译的回填委托（零反射开销）
+        /// Fallback：反射回填支持复杂对象、集合、解密、类型转换
+        /// </summary>
+        public T Hydrate<T>(IDictionary<string, object> source) where T : new()
+        {
+            if (source == null)
+                throw new ArgumentNullException(nameof(source));
+
+            var metadata = ReflectionCache.Instance.GetMetadata(typeof(T));
+
+            // 【性能觉醒】优先使用预编译的 Hydrator（Expression Tree → Delegate）
+            // 性能提升：从反射 SetValue（~1000ns）→ 原生委托（~20ns），约 50 倍提升
+            // 注意：仅支持简单POCO（无嵌套、无集合），复杂场景fallback到反射
+            if (metadata.Hydrator != null)
+            {
+                try
+                {
+                    return (T)metadata.Hydrator(source, _namingPolicy, _decryptor);
+                }
+                catch
+                {
+                    // Hydrator 失败时 fallback 到反射路径（支持复杂场景）
+                }
+            }
+
+            // Fallback 路径：使用反射回填（支持解密、类型转换、集合处理）
+            return (T)HydrateInternal(typeof(T), source, 0);
+        }
+
+        /// <summary>
+        /// 内部递归回填方法
+        /// </summary>
+        private object HydrateInternal(Type type, IDictionary<string, object> source, int depth)
+        {
+            // 物理红线：防御性深度检查
+            if (depth > ContractBoundaries.MaxNestingDepth)
+            {
+                var typeName = type.FullName ?? type.Name ?? "Unknown";
+                throw new ContractIncompleteException(
+                    typeName,
+                    ContractDiagnosticRegistry.NXC203,
+                    ContractBoundaries.MaxNestingDepth
+                );
+            }
+
+            var metadata = ReflectionCache.Instance.GetMetadata(type);
+            var instance = Activator.CreateInstance(type)!;
+            var typeFullName = type.FullName ?? type.Name ?? "Unknown";
+            var typeName2 = type.Name ?? "Unknown";
+
+            foreach (var pm in metadata.Properties)
+            {
+                // 确定字段名：Path Pinning 优先
+                string fieldName = pm.ApiField.Name ?? _namingPolicy.ConvertName(pm.PropertyInfo.Name);
+
+                // 提取源数据
+                if (!source.TryGetValue(fieldName, out var rawValue) || rawValue == null)
+                {
+                    // NXC301: 必需字段缺失检查
+                    if (pm.ApiField.IsRequired && !TypeUtilities.IsNullable(pm.PropertyInfo.PropertyType))
+                    {
+                        throw new ContractIncompleteException(
+                            typeFullName,
+                            ContractDiagnosticRegistry.NXC301,
+                            typeName2,
+                            pm.PropertyInfo.Name ?? "Unknown",
+                            fieldName
+                        );
+                    }
+                    // 可选字段：优雅跳过
+                    continue;
+                }
+
+                // 执行值转换（含解密、递归、类型转换）
+                var finalValue = TransformValue(rawValue, pm, depth);
+                pm.PropertyInfo.SetValue(instance, finalValue);
+            }
+
+            return instance;
+        }
+
+        /// <summary>
+        /// 值转换处理（对称解密 + 递归 + 类型转换）
+        /// </summary>
+        private object TransformValue(object rawValue, PropertyMetadata pm, int depth)
+        {
+            var targetType = pm.PropertyInfo.PropertyType;
+
+            // A. 对称解密
+            if (pm.ApiField.IsEncrypted && rawValue is string encryptedStr)
+            {
+                if (_decryptor == null)
+                {
+                    var declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                    var declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                    throw new ContractIncompleteException(
+                        declaringTypeName,
+                        ContractDiagnosticRegistry.NXC202,
+                        declaringTypeShortName,
+                        pm.PropertyInfo.Name ?? "Unknown"
+                    );
+                }
+
+                rawValue = _decryptor.Decrypt(encryptedStr);
+            }
+
+            // B. 递归回填复杂对象
+            if (TypeUtilities.IsComplexType(targetType) && rawValue is IDictionary<string, object> nestedDict)
+            {
+                return HydrateInternal(targetType, nestedDict, depth + 1);
+            }
+
+            // C. 集合处理
+            if (TypeUtilities.IsCollectionType(targetType) && targetType != typeof(string) && rawValue is IEnumerable rawList)
+            {
+                return HydrateCollection(rawList, targetType, pm, depth);
+            }
+
+            // D. 强力类型转换
+            return RobustConvert(rawValue, targetType, pm);
+        }
+
+        /// <summary>
+        /// 集合回填（递归处理每个元素）
+        /// </summary>
+        private object HydrateCollection(IEnumerable rawList, Type targetType, PropertyMetadata pm, int depth)
+        {
+            // 获取集合元素类型
+            Type? elementType = null;
+            if (targetType.IsGenericType)
+            {
+                elementType = targetType.GetGenericArguments().FirstOrDefault();
+            }
+            else if (typeof(IEnumerable).IsAssignableFrom(targetType) && targetType != typeof(string))
+            {
+                elementType = typeof(object);
+            }
+
+            if (elementType == null)
+                elementType = typeof(object);
+
+            var resultList = new List<object>();
+            var itemCount = 0;
+
+            foreach (var item in rawList)
+            {
+                // NXC303: 集合大小限制
+                if (++itemCount > ContractBoundaries.MaxCollectionSize)
+                {
+                    var declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                    var declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                    throw new ContractIncompleteException(
+                        declaringTypeName,
+                        ContractDiagnosticRegistry.NXC303,
+                        declaringTypeShortName,
+                        pm.PropertyInfo.Name ?? "Unknown",
+                        ContractBoundaries.MaxCollectionSize
+                    );
+                }
+
+                if (item == null)
+                {
+                    resultList.Add(null!);
+                    continue;
+                }
+
+                // 对集合元素进行转换
+                object elementValue = item switch
+                {
+                    // 加密字符串解密
+                    string s when pm.ApiField.IsEncrypted => DecryptValue(s, pm),
+                    
+                    // 复杂对象递归回填
+                    IDictionary<string, object> dict when TypeUtilities.IsComplexType(elementType)
+                        => HydrateInternal(elementType, dict, depth + 1),
+                    
+                    // 基础类型转换
+                    _ => RobustConvert(item, elementType, pm)
+                };
+
+                resultList.Add(elementValue);
+            }
+
+            // 转换为目标集合类型
+            return ConvertToCollection(resultList, targetType, elementType);
+        }
+
+        /// <summary>
+        /// 强力类型转换器（终结三方 API 的类型混乱）
+        /// </summary>
+        private object RobustConvert(object value, Type targetType, PropertyMetadata pm)
+        {
+            try
+            {
+                // 处理 Nullable<T>
+                var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+                // 1. 同类型直接返回
+                if (underlyingType.IsInstanceOfType(value))
+                    return value;
+
+                // 2. 核心容错：常见的支付领域"脏数据"模式
+                if (underlyingType == typeof(long))
+                    return Convert.ToInt64(value);
+                if (underlyingType == typeof(decimal))
+                    return Convert.ToDecimal(value);
+                if (underlyingType == typeof(int))
+                    return Convert.ToInt32(value);
+                if (underlyingType == typeof(double))
+                    return Convert.ToDouble(value);
+                if (underlyingType == typeof(DateTime))
+                    return Convert.ToDateTime(value);
+                if (underlyingType == typeof(bool))
+                    return Convert.ToBoolean(value);
+
+                // 3. 通用转换
+                return Convert.ChangeType(value, underlyingType);
+            }
+            catch
+            {
+                // NXC302: 类型转换失败，精准告知现场
+                var declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                var declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                throw new ContractIncompleteException(
+                    declaringTypeName,
+                    ContractDiagnosticRegistry.NXC302,
+                    declaringTypeShortName,
+                    pm.PropertyInfo.Name ?? "Unknown",
+                    targetType.Name ?? "Unknown",
+                    value
+                );
+            }
+        }
+
+        /// <summary>
+        /// 解密字符串（带异常处理）
+        /// </summary>
+        private string DecryptValue(string encryptedValue, PropertyMetadata pm)
+        {
+            if (_decryptor == null)
+            {
+                var declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                var declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                throw new ContractIncompleteException(
+                    declaringTypeName,
+                    ContractDiagnosticRegistry.NXC202,
+                    declaringTypeShortName,
+                    pm.PropertyInfo.Name ?? "Unknown"
+                );
+            }
+
+            return _decryptor.Decrypt(encryptedValue);
+        }
+
+        /// <summary>
+        /// 将 List 转换为目标集合类型
+        /// </summary>
+        private object ConvertToCollection(List<object> items, Type targetType, Type elementType)
+        {
+            // 如果目标是 IEnumerable<T> 或 List<T>，直接转换
+            if (targetType.IsGenericType)
+            {
+                var genericDef = targetType.GetGenericTypeDefinition();
+                
+                // List<T>
+                if (genericDef == typeof(List<>))
+                {
+                    var listType = typeof(List<>).MakeGenericType(elementType);
+                    var list = Activator.CreateInstance(listType) as IList;
+                    foreach (var item in items)
+                        list?.Add(item);
+                    return list!;
+                }
+
+                // IEnumerable<T>, ICollection<T> 等返回 List<T>
+                if (typeof(IEnumerable).IsAssignableFrom(targetType))
+                {
+                    var listType = typeof(List<>).MakeGenericType(elementType);
+                    var list = Activator.CreateInstance(listType) as IList;
+                    foreach (var item in items)
+                        list?.Add(item);
+                    return list!;
+                }
+            }
+
+            // 非泛型集合，返回 List<object>
+            return items;
+        }
+    }
+}

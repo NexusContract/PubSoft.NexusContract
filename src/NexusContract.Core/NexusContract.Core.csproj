@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>PubSoft.NexusContract.Core</RootNamespace>
+    <AssemblyName>PubSoft.NexusContract.Core</AssemblyName>
+    <Version>1.0.0</Version>
+    <Description>Kernelized Contract Integration (KCI) Pattern - Core Implementation (Reflection Cache, Projection Engine, Retry Logic)</Description>
+    <Authors>PubSoft.NexusContract</Authors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NexusContract.Abstractions\NexusContract.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>
