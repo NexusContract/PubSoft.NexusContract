@@ -40,7 +40,12 @@ app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNo
 app.Run();
 
 /*
- * 支付宝API使用示例（契约驱动）：
+ * 支付宝API使用示例（契约驱动 - OpenAPI v3）
+ * 
+ * 架构说明：
+ * 1. 客户端调用：FastEndpoints REST 风格（POST /v3/alipay/trade/pay）
+ * 2. AlipayProvider 转发到：支付宝 OpenAPI v3（https://openapi.alipay.com/v3/alipay/trade/pay）
+ * 3. 支付宝网关处理并返回结果
  * 
  * 1. 交易支付接口
  * POST /v3/alipay/trade/pay
@@ -75,6 +80,6 @@ app.Run();
  * 
  * 路由规则：
  * - Contract中定义: [ApiOperation("alipay.trade.pay")]
- * - 自动转换为REST路由: /v3/alipay/trade/pay
- * - AlipayProvider调用支付宝网关时使用method=alipay.trade.pay
+ * - 自动转换为FastEndpoints路由: /v3/alipay/trade/pay
+ * - AlipayProvider调用支付宝 OpenAPI v3: https://openapi.alipay.com/v3/alipay/trade/pay
  */

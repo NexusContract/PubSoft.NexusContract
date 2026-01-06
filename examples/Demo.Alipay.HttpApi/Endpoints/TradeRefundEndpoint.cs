@@ -7,10 +7,6 @@ using PubSoft.NexusContract.Providers.Alipay;
 namespace Demo.Alipay.HttpApi.Endpoints;
 
 /// <summary>交易退款接口 - 契约: [ApiOperation("alipay.trade.refund")]</summary>
-public class TradeRefundEndpoint : AlipayEndpointBase<TradeRefundRequest>
+public class TradeRefundEndpoint(AlipayProvider alipayProvider) : AlipayEndpointBase<TradeRefundRequest>(alipayProvider)
 {
-    public TradeRefundEndpoint(AlipayProvider alipayProvider) 
-        : base(alipayProvider)
-    {
-    }
 }

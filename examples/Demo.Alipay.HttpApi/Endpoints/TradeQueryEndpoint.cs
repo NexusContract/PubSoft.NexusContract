@@ -7,10 +7,6 @@ using PubSoft.NexusContract.Providers.Alipay;
 namespace Demo.Alipay.HttpApi.Endpoints;
 
 /// <summary>交易查询接口 - 契约: [ApiOperation("alipay.trade.query")]</summary>
-public class TradeQueryEndpoint : AlipayEndpointBase<TradeQueryRequest>
+public class TradeQueryEndpoint(AlipayProvider alipayProvider) : AlipayEndpointBase<TradeQueryRequest>(alipayProvider)
 {
-    public TradeQueryEndpoint(AlipayProvider alipayProvider) 
-        : base(alipayProvider)
-    {
-    }
 }

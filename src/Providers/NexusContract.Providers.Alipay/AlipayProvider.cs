@@ -4,12 +4,14 @@ using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 using PubSoft.NexusContract.Abstractions.Contracts;
 using PubSoft.NexusContract.Abstractions.Policies;
 using PubSoft.NexusContract.Core;
+using PubSoft.NexusContract.Core.Policies.Impl;
 using CoreExecutionContext = PubSoft.NexusContract.Core.ExecutionContext;
 
 namespace PubSoft.NexusContract.Providers.Alipay
@@ -31,7 +33,7 @@ namespace PubSoft.NexusContract.Providers.Alipay
         /// <summary>支付宝 RSA 公钥（用于验证响应）</summary>
         public required string AlipayPublicKey { get; init; }
 
-        /// <summary>API网关地址</summary>
+        /// <summary>API网关地址（默认：https://openapi.alipay.com/）</summary>
         public Uri ApiGateway { get; init; } = new Uri("https://openapi.alipay.com/");
 
         /// <summary>是否沙箱环境</summary>
@@ -55,6 +57,12 @@ namespace PubSoft.NexusContract.Providers.Alipay
     /// - Provider 只与 NexusGateway 交互（纯业务层）
     /// - Endpoint 负责HTTP框架适配
     /// 
+    /// 版本说明：
+    /// - 使用支付宝 OpenAPI v3（RESTful 风格）
+    /// - 网关地址：https://openapi.alipay.com/v3/alipay/trade/xxx
+    /// - 请求方式：POST + JSON Body
+    /// - 参数传递：biz_content 在 JSON body 中
+    /// 
     /// 执行流程：
     /// Endpoint → Provider.ExecuteAsync(request, httpExecutor) 
     ///   ↓
@@ -62,7 +70,7 @@ namespace PubSoft.NexusContract.Providers.Alipay
     ///   ↓
     /// 四阶段管道（验证→投影→执行→回填）
     ///   ↓
-    /// HttpExecutor（实际HTTP+签名）
+    /// HttpExecutor（实际HTTP+签名）→ 支付宝 OpenAPI v3
     /// </summary>
     public class AlipayProvider : IAsyncDisposable
     {
@@ -71,6 +79,13 @@ namespace PubSoft.NexusContract.Providers.Alipay
         private readonly HttpClient _httpClient;
         private readonly INamingPolicy _namingPolicy;
 
+        /// <summary>
+        /// 初始化支付宝提供商
+        /// </summary>
+        /// <param name="config">支付宝配置</param>
+        /// <param name="gateway">Nexus 网关</param>
+        /// <param name="httpClient">HTTP 客户端</param>
+        /// <param name="namingPolicy">命名策略（默认为 SnakeCase）</param>
         public AlipayProvider(
             AlipayProviderConfig config,
             NexusGateway gateway,
@@ -85,6 +100,9 @@ namespace PubSoft.NexusContract.Providers.Alipay
             ValidateConfiguration();
         }
 
+        /// <summary>
+        /// 验证配置参数
+        /// </summary>
         private void ValidateConfiguration()
         {
             if (string.IsNullOrWhiteSpace(_config.AppId))
@@ -118,34 +136,41 @@ namespace PubSoft.NexusContract.Providers.Alipay
                 CoreExecutionContext context,
                 IDictionary<string, object> projectedRequest)
             {
-                // 1. 准备请求参数
-                var requestParams = new Dictionary<string, string>
+                // 1. 构建 OpenAPI v3 URL（RESTful 风格）
+                // 例如：https://openapi.alipay.com/v3/alipay/trade/pay
+                string apiPath = context.OperationId ?? throw new InvalidOperationException("OperationId is required");
+                Uri requestUri = BuildOpenApiV3Uri(apiPath);
+
+                // 2. 准备请求头和认证参数
+                Dictionary<string, string> authParams = new Dictionary<string, string>
                 {
                     { "app_id", _config.AppId ?? string.Empty },
-                    { "method", context.OperationId ?? string.Empty },
-                    { "format", "JSON" },
-                    { "version", "1.0" },
                     { "timestamp", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") },
+                    { "version", "1.0" },
                     { "sign_type", "RSA2" }
                 };
 
-                // 2. 转换projected参数为签名格式
-                var bizContent = ConvertToSignableFormat(projectedRequest);
-                requestParams["biz_content"] = bizContent;
+                // 3. 转换 projected 参数为 JSON
+                string bizContent = ConvertToSignableFormat(projectedRequest);
+                authParams["biz_content"] = bizContent;
 
-                // 3. 生成签名
-                var signature = GenerateSignature(requestParams);
-                requestParams["sign"] = signature;
+                // 4. 生成签名
+                string signature = GenerateSignature(authParams);
 
-                // 4. 发送HTTP请求
-                var uri = BuildRequestUri(requestParams);
-                var httpResponse = await _httpClient.GetAsync(uri, cancellationToken).ConfigureAwait(false);
+                // 5. 构建 HTTP 请求（POST + JSON Body）
+                using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, requestUri);
+                request.Headers.Add("Authorization", $"ALIPAY-SHA256withRSA app_id={_config.AppId},timestamp={authParams["timestamp"]},version=1.0,sign={signature}");
+                request.Content = new StringContent(bizContent, Encoding.UTF8, "application/json");
 
-                // 5. 解析响应
-                var responseContent = await httpResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var responseDict = ParseAlipayResponse(responseContent);
+                // 6. 发送请求
+                HttpResponseMessage httpResponse = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                httpResponse.EnsureSuccessStatusCode();
 
-                // 6. 验证响应签名
+                // 7. 解析响应
+                string responseContent = await httpResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                IDictionary<string, object> responseDict = ParseAlipayResponse(responseContent);
+
+                // 8. 验证响应签名
                 if (!VerifyResponseSignature(responseDict))
                     throw new InvalidOperationException("Alipay response signature verification failed");
 
@@ -161,7 +186,7 @@ namespace PubSoft.NexusContract.Providers.Alipay
         /// </summary>
         private string ConvertToSignableFormat(IDictionary<string, object> projected)
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(projected);
+            string json = JsonSerializer.Serialize(projected);
             return json;
         }
 
@@ -173,20 +198,20 @@ namespace PubSoft.NexusContract.Providers.Alipay
             try
             {
                 // 按字典序排序参数
-                var sortedParams = parameters
+                List<KeyValuePair<string, string>> sortedParams = parameters
                     .Where(p => !string.IsNullOrWhiteSpace(p.Value) && p.Key != "sign")
                     .OrderBy(p => p.Key)
                     .ToList();
 
                 // 构建签名字符串
-                var signString = string.Join("&", sortedParams.Select(p => $"{p.Key}={p.Value}"));
+                string signString = string.Join("&", sortedParams.Select(p => $"{p.Key}={p.Value}"));
 
                 // RSA2签名
-                using (var rsa = new RSACryptoServiceProvider())
+                using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
                 {
                     rsa.FromXmlString(_config.PrivateKey);
-                    var data = Encoding.UTF8.GetBytes(signString);
-                    var signature = rsa.SignData(data, "SHA256");
+                    byte[] data = Encoding.UTF8.GetBytes(signString);
+                    byte[] signature = rsa.SignData(data, "SHA256");
                     return Convert.ToBase64String(signature);
                 }
             }
@@ -217,16 +242,22 @@ namespace PubSoft.NexusContract.Providers.Alipay
         }
 
         /// <summary>
-        /// 构建请求URI
+        /// 构建 OpenAPI v3 URI（RESTful 风格）
+        /// 
+        /// 示例：alipay.trade.pay → https://openapi.alipay.com/v3/alipay/trade/pay
         /// </summary>
-        private Uri BuildRequestUri(IDictionary<string, string> parameters)
+        private Uri BuildOpenApiV3Uri(string method)
         {
-            var queryString = string.Join("&", parameters.Select(p => $"{Uri.EscapeDataString(p.Key)}={Uri.EscapeDataString(p.Value)}"));
-            var baseUri = _config.UseSandbox
-                ? new Uri("https://openapi.alipaydev.com/")
+            // 去掉 "alipay." 前缀，转换为路径格式
+            string path = method.StartsWith("alipay.", StringComparison.OrdinalIgnoreCase)
+                ? method.Substring("alipay.".Length).Replace('.', '/')
+                : method.Replace('.', '/');
+
+            Uri baseUri = _config.UseSandbox
+                ? new Uri("https://openapi-sandbox.dl.alipaydev.com/")
                 : _config.ApiGateway;
 
-            return new Uri($"{baseUri}?{queryString}");
+            return new Uri(baseUri, $"v3/alipay/{path}");
         }
 
         /// <summary>
@@ -236,7 +267,7 @@ namespace PubSoft.NexusContract.Providers.Alipay
         {
             try
             {
-                var responseDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent)
+                Dictionary<string, object>? responseDict = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent)
                     ?? new Dictionary<string, object>();
 
                 return responseDict;
@@ -247,28 +278,13 @@ namespace PubSoft.NexusContract.Providers.Alipay
             }
         }
 
+        /// <summary>
+        /// 释放资源（异步）
+        /// </summary>
         public async ValueTask DisposeAsync()
         {
             _httpClient?.Dispose();
             await Task.CompletedTask;
-        }
-    }
-
-    /// <summary>
-    /// SnakeCaseNamingPolicy - 支付宝标准命名策略
-    /// </summary>
-    public class SnakeCaseNamingPolicy : INamingPolicy
-    {
-        public string ConvertName(string propertyName)
-        {
-            var result = new StringBuilder();
-            for (int i = 0; i < propertyName.Length; i++)
-            {
-                if (char.IsUpper(propertyName[i]) && i > 0)
-                    result.Append('_');
-                result.Append(char.ToLowerInvariant(propertyName[i]));
-            }
-            return result.ToString();
         }
     }
 }

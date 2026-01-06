@@ -24,15 +24,10 @@ namespace Demo.Alipay.HttpApi.Endpoints
     /// 3. 自动调用AlipayProvider执行请求
     /// 4. 子类零代码实现，仅需类名声明
     /// </summary>
-    public abstract class AlipayEndpointBase<TRequest> : Endpoint<TRequest>
+    public abstract class AlipayEndpointBase<TRequest>(AlipayProvider alipayProvider) : Endpoint<TRequest>
         where TRequest : class, IApiRequest
     {
-        private readonly AlipayProvider _alipayProvider;
-
-        protected AlipayEndpointBase(AlipayProvider alipayProvider)
-        {
-            _alipayProvider = alipayProvider ?? throw new ArgumentNullException(nameof(alipayProvider));
-        }
+        private readonly AlipayProvider _alipayProvider = alipayProvider ?? throw new ArgumentNullException(nameof(alipayProvider));
 
         public override void Configure()
         {
@@ -48,8 +43,8 @@ namespace Demo.Alipay.HttpApi.Endpoints
             // 转换路由：alipay.trade.create → trade/create
             // 支付宝Contract中定义的是method参数（如alipay.trade.create）
             // 需要转换为REST风格路由（如 /trade/create）
-            var methodName = metadata.Operation.Operation;
-            var route = methodName.StartsWith("alipay.", StringComparison.OrdinalIgnoreCase)
+            string methodName = metadata.Operation.Operation;
+            string route = methodName.StartsWith("alipay.", StringComparison.OrdinalIgnoreCase)
                 ? methodName.Substring("alipay.".Length).Replace('.', '/')
                 : methodName.Replace('.', '/');
             
@@ -76,6 +71,7 @@ namespace Demo.Alipay.HttpApi.Endpoints
             AllowAnonymous();
         }
 
+        /// <inheritdoc />
         public override async Task HandleAsync(TRequest req, CancellationToken ct)
         {
             // 使用ReflectionCache获取契约元数据（已缓存，O(1)查询）
@@ -103,7 +99,7 @@ namespace Demo.Alipay.HttpApi.Endpoints
             await responseTask.ConfigureAwait(false);
 
             // 提取结果
-            var result = responseTask.GetType().GetProperty("Result")!.GetValue(responseTask);
+            object? result = responseTask.GetType().GetProperty("Result")!.GetValue(responseTask);
 
             // 序列化并写入HTTP响应
             HttpContext.Response.ContentType = "application/json";

@@ -11,11 +11,7 @@ namespace Demo.Alipay.HttpApi.Endpoints
     /// 契约: [ApiOperation("alipay.trade.pay", HttpVerb.POST)] 自动决定路由
     /// 响应: IApiRequest<TradePayResponse> 自动决定返回类型
     /// </summary>
-    public class TradePayEndpoint : AlipayEndpointBase<TradePayRequest>
+    public class TradePayEndpoint(AlipayProvider alipayProvider) : AlipayEndpointBase<TradePayRequest>(alipayProvider)
     {
-        public TradePayEndpoint(AlipayProvider alipayProvider) 
-            : base(alipayProvider)
-        {
-        }
     }
 }

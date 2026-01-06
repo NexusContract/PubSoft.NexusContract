@@ -5,6 +5,7 @@ using System;
 using Microsoft.Extensions.DependencyInjection;
 using PubSoft.NexusContract.Abstractions.Policies;
 using PubSoft.NexusContract.Core;
+using PubSoft.NexusContract.Core.Policies.Impl;
 
 namespace PubSoft.NexusContract.Providers.Alipay.ServiceConfiguration
 {
