@@ -31,7 +31,7 @@ var app = builder.Build();
 // ==================== 步骤3：配置中间件 ====================
 app.UseFastEndpoints(config =>
 {
-    config.Endpoints.RoutePrefix = "api/alipay";
+    config.Endpoints.RoutePrefix = "v3/alipay";
 });
 
 // ==================== 步骤4：测试端点 ====================
@@ -40,9 +40,10 @@ app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNo
 app.Run();
 
 /*
- * 支付宝API使用示例：
+ * 支付宝API使用示例（契约驱动）：
  * 
- * POST /api/alipay/alipay.trade.pay
+ * 1. 交易支付接口
+ * POST /v3/alipay/trade/pay
  * Content-Type: application/json
  * 
  * {
@@ -50,15 +51,30 @@ app.Run();
  *   "totalAmount": 100.00,
  *   "subject": "测试订单",
  *   "scene": "bar_code",
- *   "buyerId": "2088...",
- *   "authCode": "123456..."
+ *   "authCode": "285015833990941919"
  * }
  * 
- * 响应：
+ * 2. 交易创建接口
+ * POST /v3/alipay/trade/create
+ * Content-Type: application/json
+ * 
  * {
- *   "tradeNo": "2024...",
- *   "outTradeNo": "2024001",
- *   "tradeStatus": "TRADE_SUCCESS",
- *   "receiptAmount": 100.00
+ *   "merchantOrderNo": "2024002",
+ *   "totalAmount": 88.88,
+ *   "subject": "测试订单2",
+ *   "buyerId": "2088..."
  * }
+ * 
+ * 3. 交易查询接口
+ * POST /v3/alipay/trade/query
+ * Content-Type: application/json
+ * 
+ * {
+ *   "merchantOrderNo": "2024001"
+ * }
+ * 
+ * 路由规则：
+ * - Contract中定义: [ApiOperation("alipay.trade.pay")]
+ * - 自动转换为REST路由: /v3/alipay/trade/pay
+ * - AlipayProvider调用支付宝网关时使用method=alipay.trade.pay
  */
