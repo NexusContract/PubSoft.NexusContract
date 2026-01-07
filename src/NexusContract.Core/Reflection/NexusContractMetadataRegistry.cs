@@ -82,7 +82,8 @@ namespace PubSoft.NexusContract.Core.Reflection
         {
             return _cache.GetOrAdd(type, t =>
             {
-                // Fail-fast mode: 不收集错误，直接抛异常
+                // Fail-fast mode: 使用 ValidateFailFast，直接抛异常
+                ContractValidator.ValidateFailFast(t);
                 return BuildMetadata(t, warmup: false, aggregateErrors: false, errors: null);
             });
         }
@@ -92,9 +93,10 @@ namespace PubSoft.NexusContract.Core.Reflection
         /// 
         /// 改进点：
         /// 1. 返回结构化的 DiagnosticReport，而非简单的 List&lt;string&gt;
-        /// 2. 使用 ValidateWithReport 收集所有错误，而非遇到第一个错误就停止
+        /// 2. 使用 Validate(Type, DiagnosticReport) 收集所有错误，而非遇到第一个错误就停止
         /// 3. 即使某个契约有错误，仍继续扫描其他契约
         /// 4. 区分"致命错误"（阻断缓存）和"普通错误"（记录但继续）
+        /// 5. 如果没有任何 Error/Critical，则尝试构建并缓存元数据
         /// </summary>
         public DiagnosticReport Preload(IEnumerable<Type> types, bool warmup = false)
         {
@@ -111,29 +113,30 @@ namespace PubSoft.NexusContract.Core.Reflection
 
                     string contractName = type.FullName ?? type.Name ?? "Unknown";
 
-                    var validationDiagnostics = ContractValidator.ValidateWithReport(type);
+                    // 1. 执行全量诊断扫描
+                    ContractValidator.Validate(type, report);
 
-                    bool hasCriticalError = validationDiagnostics.Any(d => d.Severity == DiagnosticSeverity.Critical);
-
-                    if (hasCriticalError)
+                    // 2. 如果没有任何 Error/Critical，则尝试构建并缓存元数据
+                    if (!report.HasErrors)
                     {
-                        report.AddRange(validationDiagnostics);
-                        continue;
-                    }
-
-                    report.AddRange(validationDiagnostics);
-
-                    var buildDiagnostics = new List<ContractDiagnostic>();
-                    var metadata = BuildMetadataWithReport(type, warmup, buildDiagnostics);
-
-                    if (buildDiagnostics.Count == 0 && metadata != null)
-                    {
-                        _cache[type] = metadata;
-                        report.IncrementSuccessCount();
-                    }
-                    else
-                    {
-                        report.AddRange(buildDiagnostics);
+                        try
+                        {
+                            GetMetadata(type); // 内部会执行 BuildMetadata 并缓存
+                            report.IncrementSuccessCount();
+                        }
+                        catch (Exception ex)
+                        {
+                            // 捕获构建期意外错误（如表达式树编译失败）
+                            report.Add(new ContractDiagnostic(
+                                contractName,
+                                "NXC_GENERIC",
+                                $"元数据构建失败: {ex.Message}",
+                                DiagnosticSeverity.Critical,
+                                propertyName: null,
+                                propertyPath: null,
+                                ex.Message
+                            ));
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -336,7 +339,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             // ========== 阶段 1：入境检查（Validation）==========
             try
             {
-                ContractValidator.Validate(type);
+                ContractValidator.ValidateFailFast(type);
             }
             catch (Exception ex)
             {

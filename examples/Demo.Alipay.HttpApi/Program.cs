@@ -42,7 +42,11 @@ app.UseFastEndpoints(config =>
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
 
 // ==================== 步骤5：启动期契约体检示例 ====================
-// 在应用启动时扫描当前 AppDomain 中的类型，调用 Preload 进行体检并打印报告。
+// 【决策 A-307】无损全景扫描：启动期批量预加载并输出完整诊断报告
+Console.WriteLine("========================================");
+Console.WriteLine("NexusContract 启动期契约体检");
+Console.WriteLine("========================================");
+
 try
 {
     var types = AppDomain.CurrentDomain.GetAssemblies()
@@ -53,22 +57,33 @@ try
         .Where(t => t.IsClass && !t.IsAbstract && t.GetCustomAttributes(typeof(ApiOperationAttribute), inherit: false).Any())
         .ToArray();
 
+    Console.WriteLine($"扫描到 {types.Length} 个契约类型，开始体检...\n");
+
     var report = NexusContractMetadataRegistry.Instance.Preload(types, warmup: true);
+
+    // 1. 打印人类可读的报告（带颜色）
     report.PrintToConsole(includeDetails: true);
 
-    // 可选：序列化诊断以便 CI / 保存
+    // 2. 可选：序列化为 JSON（便于 CI/CD 集成）
     string json = JsonSerializer.Serialize(report.Diagnostics, new JsonSerializerOptions { WriteIndented = true });
+    Console.WriteLine("\n[JSON 诊断输出] (可用于 CI/CD):");
     Console.WriteLine(json);
 
+    // 3. 检查致命错误
     if (report.HasCriticalErrors)
     {
-        Console.Error.WriteLine("Detected critical contract errors; aborting startup.");
+        Console.Error.WriteLine("\n❌ 检测到致命的契约错误，系统即将中止启动。");
+        Console.Error.WriteLine("请修复以上 [Critical] 或 [Error] 标记的问题后重试。");
         Environment.Exit(1);
     }
+
+    Console.WriteLine("\n✅ 所有契约均已通过体检，系统启动成功。");
+    Console.WriteLine("========================================\n");
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"Preload failed: {ex.Message}");
+    Console.Error.WriteLine($"\n❌ Preload 执行失败: {ex.Message}");
+    Console.Error.WriteLine(ex.StackTrace);
     Environment.Exit(2);
 }
 
