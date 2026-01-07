@@ -1,9 +1,9 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
 
-namespace PubSoft.NexusContract.Abstractions.Contracts
+namespace NexusContract.Abstractions.Contracts
 {
     /// <summary>
     /// 非泛型标记接口：所有 API 请求都实现此接口
@@ -42,4 +42,6 @@ namespace PubSoft.NexusContract.Abstractions.Contracts
         // 契约内核：不通过基类注入行为，不依赖字符串配置，类型系统即协议文档
     }
 }
+
+
 

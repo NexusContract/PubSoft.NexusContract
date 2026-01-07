@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
-using PubSoft.NexusContract.Abstractions.Policies;
+using NexusContract.Abstractions.Policies;
 
-namespace PubSoft.NexusContract.Core.Policies.Impl
+namespace NexusContract.Core.Policies.Impl
 {
     /// <summary>
     /// Snake Case 命名策略 (例如: OrderId -> order_id)
@@ -43,3 +43,5 @@ namespace PubSoft.NexusContract.Core.Policies.Impl
         }
     }
 }
+
+

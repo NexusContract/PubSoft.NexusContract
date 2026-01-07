@@ -1,0 +1,189 @@
+name: Publish NuGet Packages
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags like v1.0.0, v1.0.1-preview, etc.
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0-preview.1)'
+        required: true
+        type: string
+
+env:
+  DOTNET_VERSION: '10.0.x'  # .NET 10 Preview
+  CONFIGURATION: Release
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Required for SourceLink
+    
+    - name: 🔧 Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+        include-prerelease: true  # Required for .NET 10 preview
+    
+    - name: 📦 Restore Dependencies
+      run: dotnet restore
+    
+    - name: 🏗️ Build Solution
+      run: dotnet build --configuration ${{ env.CONFIGURATION }} --no-restore
+    
+    - name: 🧪 Run Tests
+      run: dotnet test --configuration ${{ env.CONFIGURATION }} --no-build --verbosity normal
+    
+    - name: 📊 Run Benchmarks (Optional)
+      run: dotnet run --project benchmarks/NexusContract.Benchmarks/NexusContract.Benchmarks.csproj -c ${{ env.CONFIGURATION }} || echo "Benchmarks skipped"
+      continue-on-error: true
+
+  pack-and-publish:
+    name: Pack and Publish NuGet Packages
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    environment: nuget-production  # GitHub environment for secrets
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Required for SourceLink
+    
+    - name: 🔧 Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+        include-prerelease: true
+    
+    - name: 🏷️ Determine Version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${GITHUB_REF#refs/tags/v}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "📦 Publishing version: $VERSION"
+    
+    - name: 📦 Pack Abstractions
+      run: |
+        dotnet pack src/NexusContract.Abstractions/NexusContract.Abstractions.csproj \
+          --configuration ${{ env.CONFIGURATION }} \
+          --output ./dist \
+          -p:Version=${{ steps.version.outputs.VERSION }} \
+          -p:ContinuousIntegrationBuild=true \
+          -p:EmbedUntrackedSources=true
+    
+    - name: 📦 Pack Core
+      run: |
+        dotnet pack src/NexusContract.Core/NexusContract.Core.csproj \
+          --configuration ${{ env.CONFIGURATION }} \
+          --output ./dist \
+          -p:Version=${{ steps.version.outputs.VERSION }} \
+          -p:ContinuousIntegrationBuild=true \
+          -p:EmbedUntrackedSources=true
+    
+    - name: 📦 Pack Client
+      run: |
+        dotnet pack src/NexusContract.Client/NexusContract.Client.csproj \
+          --configuration ${{ env.CONFIGURATION }} \
+          --output ./dist \
+          -p:Version=${{ steps.version.outputs.VERSION }} \
+          -p:ContinuousIntegrationBuild=true \
+          -p:EmbedUntrackedSources=true
+    
+    - name: 📦 Pack Alipay Provider
+      run: |
+        dotnet pack src/Providers/NexusContract.Providers.Alipay/NexusContract.Providers.Alipay.csproj \
+          --configuration ${{ env.CONFIGURATION }} \
+          --output ./dist \
+          -p:Version=${{ steps.version.outputs.VERSION }} \
+          -p:ContinuousIntegrationBuild=true \
+          -p:EmbedUntrackedSources=true
+    
+    - name: 📋 List Packages
+      run: ls -lh ./dist/*.nupkg
+    
+    - name: 🔍 Validate Packages
+      run: |
+        echo "🔍 Validating NuGet packages..."
+        for pkg in ./dist/*.nupkg; do
+          echo "📦 Inspecting $pkg"
+          unzip -l "$pkg" | grep -E '(README\.md|\.pdb|\.sourcelink\.json)' || echo "⚠️ Missing embedded files"
+        done
+    
+    - name: 🚀 Push to NuGet.org
+      run: |
+        dotnet nuget push ./dist/*.nupkg \
+          --source https://api.nuget.org/v3/index.json \
+          --api-key ${{ secrets.NUGET_API_KEY }} \
+          --skip-duplicate
+    
+    - name: 📤 Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-packages-${{ steps.version.outputs.VERSION }}
+        path: ./dist/*.nupkg
+        retention-days: 90
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: pack-and-publish
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+    
+    - name: 🏷️ Extract Version
+      id: version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+    
+    - name: 📝 Generate Release Notes
+      id: notes
+      run: |
+        cat << EOF > release_notes.md
+        ## 📦 NuGet Packages Published
+
+        | Package | Version | Link |
+        |---------|---------|------|
+        | PubSoft.NexusContract.Abstractions | ${{ steps.version.outputs.VERSION }} | [NuGet](https://www.nuget.org/packages/PubSoft.NexusContract.Abstractions/${{ steps.version.outputs.VERSION }}) |
+        | PubSoft.NexusContract.Core | ${{ steps.version.outputs.VERSION }} | [NuGet](https://www.nuget.org/packages/PubSoft.NexusContract.Core/${{ steps.version.outputs.VERSION }}) |
+        | PubSoft.NexusContract.Client | ${{ steps.version.outputs.VERSION }} | [NuGet](https://www.nuget.org/packages/PubSoft.NexusContract.Client/${{ steps.version.outputs.VERSION }}) |
+        | PubSoft.NexusContract.Providers.Alipay | ${{ steps.version.outputs.VERSION }} | [NuGet](https://www.nuget.org/packages/PubSoft.NexusContract.Providers.Alipay/${{ steps.version.outputs.VERSION }}) |
+
+        ## 🚀 Quick Start
+
+        \`\`\`bash
+        dotnet add package PubSoft.NexusContract.Abstractions --version ${{ steps.version.outputs.VERSION }}
+        dotnet add package PubSoft.NexusContract.Core --version ${{ steps.version.outputs.VERSION }}
+        \`\`\`
+
+        ## 📚 Documentation
+
+        - [Implementation Guide](https://github.com/${{ github.repository }}/blob/main/docs/IMPLEMENTATION.md)
+        - [README](https://github.com/${{ github.repository }}/blob/main/README.md)
+
+        ## ✨ Highlights
+
+        See commit history for detailed changes.
+        EOF
+    
+    - name: 🎉 Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        body_path: release_notes.md
+        draft: false
+        prerelease: ${{ contains(steps.version.outputs.VERSION, 'preview') || contains(steps.version.outputs.VERSION, 'alpha') || contains(steps.version.outputs.VERSION, 'beta') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

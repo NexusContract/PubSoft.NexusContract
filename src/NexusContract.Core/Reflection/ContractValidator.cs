@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
@@ -6,13 +6,13 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using PubSoft.NexusContract.Abstractions;
-using PubSoft.NexusContract.Abstractions.Attributes;
-using PubSoft.NexusContract.Abstractions.Configuration;
-using PubSoft.NexusContract.Abstractions.Exceptions;
-using PubSoft.NexusContract.Core.Utilities;
+using NexusContract.Abstractions;
+using NexusContract.Abstractions.Attributes;
+using NexusContract.Abstractions.Configuration;
+using NexusContract.Abstractions.Exceptions;
+using NexusContract.Core.Utilities;
 
-namespace PubSoft.NexusContract.Core.Reflection
+namespace NexusContract.Core.Reflection
 {
     /// <summary>
     /// 【决策 A-307】全量诊断执法官 (Full-Scan Contract Validator)
@@ -300,3 +300,5 @@ namespace PubSoft.NexusContract.Core.Reflection
         }
     }
 }
+
+

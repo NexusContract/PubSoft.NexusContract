@@ -7,10 +7,10 @@ using FastEndpoints;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using PubSoft.NexusContract.Providers.Alipay;
-using PubSoft.NexusContract.Providers.Alipay.ServiceConfiguration;
-using PubSoft.NexusContract.Core.Reflection;
-using PubSoft.NexusContract.Abstractions.Attributes;
+using NexusContract.Providers.Alipay;
+using NexusContract.Providers.Alipay.ServiceConfiguration;
+using NexusContract.Core.Reflection;
+using NexusContract.Abstractions.Attributes;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);

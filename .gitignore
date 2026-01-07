@@ -1,3 +1,7 @@
+# Environment files (contains secrets)
+.env
+.env.*
+
 # Visual Studio / .NET artifacts
 .vs/
 
@@ -36,6 +40,10 @@ Thumbs.db
 
 # Publish output
 publish/
+
+# NuGet package output
+dist/
+artifacts/
 
 # Temporary files
 *.tmp

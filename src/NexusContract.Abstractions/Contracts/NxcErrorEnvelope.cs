@@ -1,9 +1,9 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System.Collections.Generic;
 
-namespace PubSoft.NexusContract.Abstractions.Contracts
+namespace NexusContract.Abstractions.Contracts
 {
     /// <summary>
     /// Standard error envelope used across server and client to convey structured NXC errors.
@@ -17,3 +17,5 @@ namespace PubSoft.NexusContract.Abstractions.Contracts
         public Dictionary<string, object>? Data { get; set; }
     }
 }
+
+

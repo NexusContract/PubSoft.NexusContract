@@ -1,25 +1,60 @@
 <Project>
   <PropertyGroup>
-    <Authors>PubSoft</Authors>
+    <!-- 🏢 组织与版权 -->
+    <Authors>NexusContract</Authors>
+    <Company>NexusContract</Company>
+    <Copyright>Copyright (c) 2025-2026 NexusContract. All rights reserved.</Copyright>
+    
+    <!-- 📦 包元数据（NuGet） -->
+    <PackageId>$(AssemblyName)</PackageId>
+    <Version>1.0.0-preview.1</Version>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    
+    <!-- 🔗 项目链接 -->
     <PackageProjectUrl>https://github.com/NexusContract/PubSoft.NexusContract</PackageProjectUrl>
     <RepositoryUrl>https://github.com/NexusContract/PubSoft.NexusContract.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Copyright>Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com)</Copyright>
-
-    <Version>1.0.0</Version>
-    <Description>NexusContract (Elite Edition) - A Surgical, Metadata-Driven Contract Engine for .NET 10.</Description>
-    <PackageTags>Payment;Gateway;KCI;HighPerformance;Net10</PackageTags>
+    <!-- 🏷️ 标签与搜索优化（面向 AI 和开发者） -->
+    <PackageTags>payment;gateway;kci;contract;metadata-driven;high-performance;net10;alipay;unionpay;wechatpay;fastendpoints;repr;repr-p;architecture</PackageTags>
     
+    <!-- 📝 包图标（可选，建议添加） -->
+    <!-- <PackageIcon>icon.png</PackageIcon> -->
+    
+    <!-- 🛠️ 编译器配置 -->
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    
+    <!-- 📖 XML 文档生成（AI 友好） -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
+    
+    <!-- 🔍 源链接（GitHub SourceLink）- 允许调试进入包代码 -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    
+    <!-- 📦 确定性构建（Reproducible Builds） -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
+  <!-- 📚 SourceLink（用于调试体验优化） -->
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
+  </ItemGroup>
+  
+  <!-- 📄 自动包含 README.md（如果存在） -->
+  <ItemGroup Condition="Exists('README.md')">
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  
+  <!-- 📄 自动包含 README.zh-CN.md（如果存在） -->
+  <ItemGroup Condition="Exists('README.zh-CN.md')">
+    <None Include="README.zh-CN.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>

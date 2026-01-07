@@ -8,13 +8,13 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-using PubSoft.NexusContract.Abstractions.Contracts;
-using PubSoft.NexusContract.Abstractions.Policies;
-using PubSoft.NexusContract.Core;
-using PubSoft.NexusContract.Core.Policies.Impl;
-using CoreExecutionContext = PubSoft.NexusContract.Core.ExecutionContext;
+using NexusContract.Abstractions.Contracts;
+using NexusContract.Abstractions.Policies;
+using NexusContract.Core;
+using NexusContract.Core.Policies.Impl;
+using CoreExecutionContext = NexusContract.Core.ExecutionContext;
 
-namespace PubSoft.NexusContract.Providers.Alipay
+namespace NexusContract.Providers.Alipay
 {
     /// <summary>
     /// 支付宝提供商配置
@@ -304,3 +304,5 @@ namespace PubSoft.NexusContract.Providers.Alipay
         }
     }
 }
+
+

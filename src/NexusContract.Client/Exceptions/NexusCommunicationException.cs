@@ -1,12 +1,12 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using PubSoft.NexusContract.Abstractions.Exceptions;
+using NexusContract.Abstractions.Exceptions;
 
-namespace PubSoft.NexusContract.Client.Exceptions
+namespace NexusContract.Client.Exceptions
 {
     /// <summary>
     /// NexusGateway 通信异常
@@ -161,3 +161,5 @@ namespace PubSoft.NexusContract.Client.Exceptions
         }
     }
 }
+
+

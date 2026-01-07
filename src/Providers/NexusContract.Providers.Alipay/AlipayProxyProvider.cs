@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
@@ -9,10 +9,10 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
-using PubSoft.NexusContract.Abstractions.Contracts;
-using PubSoft.NexusContract.Core.Reflection;
+using NexusContract.Abstractions.Contracts;
+using NexusContract.Core.Reflection;
 
-namespace PubSoft.NexusContract.Providers.Alipay
+namespace NexusContract.Providers.Alipay
 {
     /// <summary>
     /// 支付宝 OpenAPI v3 极简代理（不依赖 NexusGateway）
@@ -186,3 +186,5 @@ namespace PubSoft.NexusContract.Providers.Alipay
         public string ResponseBody { get; } = responseBody;
     }
 }
+
+

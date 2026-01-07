@@ -2,17 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <RootNamespace>PubSoft.NexusContract.Core</RootNamespace>
-    <AssemblyName>PubSoft.NexusContract.Core</AssemblyName>
-    <Version>1.0.0</Version>
-    <Description>Kernelized Contract Integration (KCI) Pattern - Core Implementation (Reflection Cache, Projection Engine, Retry Logic)</Description>
-    <Authors>PubSoft.NexusContract</Authors>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
+    <RootNamespace>NexusContract.Core</RootNamespace>
+    <AssemblyName>NexusContract.Core</AssemblyName>
+    
+    <!-- 📦 NuGet 包元数据 -->
+    <PackageId>NexusContract.Core</PackageId>
+    <Title>NexusContract Core - Metadata-Driven Execution Engine</Title>
+    <Description>[CN] NexusContract 框架的高性能执行引擎。包含 NexusGateway(四阶段管道)、ContractValidator(双模验证)、NexusContractMetadataRegistry(冻结元数据)、ProjectionEngine、ResponseHydrationEngine 及启动诊断报告。目标 .NET 10。 | [EN] High-performance execution engine for NexusContract framework. Includes NexusGateway (4-phase pipeline), ContractValidator (dual-mode validation), NexusContractMetadataRegistry (frozen metadata), ProjectionEngine, ResponseHydrationEngine, and startup diagnostic reporting. Targets .NET 10.</Description>
+    <PackageTags>$(PackageTags);engine;gateway;validator;projection;hydration;metadata;performance;net10</PackageTags>
+    <PackageReleaseNotes>Initial preview with startup diagnostics, dual-mode validation, and optimized metadata registry.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>

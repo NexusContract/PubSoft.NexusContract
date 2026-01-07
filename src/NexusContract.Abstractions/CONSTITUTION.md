@@ -1,4 +1,4 @@
-# PubSoft.NexusContract 宪法
+# NexusContract 宪法
 
 > **"显式边界优于隐式魔法"** —— 这是本框架的最高法律。
 

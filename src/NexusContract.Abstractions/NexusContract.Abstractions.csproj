@@ -2,17 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <RootNamespace>PubSoft.NexusContract.Abstractions</RootNamespace>
-    <AssemblyName>PubSoft.NexusContract.Abstractions</AssemblyName>
-    <Version>1.0.0</Version>
-    <Description>Kernelized Contract Integration (KCI) Pattern - Pure Abstractions Layer</Description>
-    <Authors>PubSoft.NexusContract</Authors>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
+    <RootNamespace>NexusContract.Abstractions</RootNamespace>
+    <AssemblyName>NexusContract.Abstractions</AssemblyName>
+    
+    <!-- 📦 NuGet 包元数据 -->
+    <PackageId>NexusContract.Abstractions</PackageId>
+    <Title>NexusContract Abstractions - Contract-First Architecture Foundation</Title>
+    <Description>[CN] 纯抽象层，用于构建基于内核化契约集成(KCI)模式的支付网关集成。包含 IApiRequest&lt;T&gt;、ApiOperation、ApiField 特性及结构化诊断码(NXC1xx-3xx)。零运行时依赖，兼容 netstandard2.0。 | [EN] Pure abstractions for building payment gateway integrations using Kernelized Contract Integration (KCI) pattern. Includes IApiRequest&lt;T&gt;, ApiOperation, ApiField attributes, and structured diagnostic codes (NXC1xx-3xx). Zero runtime dependencies, netstandard2.0 compatible.</Description>
+    <PackageTags>$(PackageTags);abstractions;contract;attributes;kci-pattern;payment-gateway;netstandard</PackageTags>
+    <PackageReleaseNotes>Initial preview release with core abstractions and diagnostic framework.</PackageReleaseNotes>
   </PropertyGroup>
 
 </Project>

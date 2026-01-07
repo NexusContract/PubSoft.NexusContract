@@ -1,10 +1,10 @@
-# PubSoft.NexusContract.Client SDK - 精英通道指南
+# NexusContract.Client SDK - 精英通道指南
 
 > **"契约是共享的，但工具是进化的。"** — 架构师宣言
 
 ## 🎯 使命
 
-**PubSoft.NexusContract.Client** 是 .NET 10 级别的精英 SDK，为支付集成开发者提供**无与伦比的开发体验（DX）**和**性能**。
+**NexusContract.Client** 是 .NET 10 级别的精英 SDK，为支付集成开发者提供**无与伦比的开发体验（DX）**和**性能**。
 
 ---
 
@@ -379,7 +379,7 @@ catch (NexusCommunicationException ex)
 
 ## 🎯 总结
 
-**PubSoft.NexusContract.Client** 是为支付集成而生的精英 SDK：
+**NexusContract.Client** 是为支付集成而生的精英 SDK：
 
 ✅ **零冗余代码**：Primary Constructor 消除样板  
 ✅ **强大诊断**：NXC 错误码体系清晰定位问题  

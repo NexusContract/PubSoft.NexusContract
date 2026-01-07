@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 #nullable enable
@@ -9,15 +9,15 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using PubSoft.NexusContract.Abstractions.Attributes;
-using PubSoft.NexusContract.Abstractions.Contracts;
-using PubSoft.NexusContract.Abstractions.Exceptions;
-using PubSoft.NexusContract.Abstractions.Policies;
-using PubSoft.NexusContract.Client.Exceptions;
-using PubSoft.NexusContract.Core;
-using PubSoft.NexusContract.Core.Reflection;
+using NexusContract.Abstractions.Attributes;
+using NexusContract.Abstractions.Contracts;
+using NexusContract.Abstractions.Exceptions;
+using NexusContract.Abstractions.Policies;
+using NexusContract.Client.Exceptions;
+using NexusContract.Core;
+using NexusContract.Core.Reflection;
 
-namespace PubSoft.NexusContract.Client
+namespace NexusContract.Client
 {
     /// <summary>
     /// NexusGateway 同步客户端（.NET 10 Primary Constructor 版本）
@@ -101,7 +101,7 @@ namespace PubSoft.NexusContract.Client
                             PropertyNameCaseInsensitive = true
                         };
 
-                        var envelope = System.Text.Json.JsonSerializer.Deserialize<PubSoft.NexusContract.Abstractions.Contracts.NxcErrorEnvelope>(errorContent, options);
+                        var envelope = System.Text.Json.JsonSerializer.Deserialize<NexusContract.Abstractions.Contracts.NxcErrorEnvelope>(errorContent, options);
                         if (envelope != null && !string.IsNullOrWhiteSpace(envelope.Code))
                         {
                             parsedCode = envelope.Code;
@@ -179,24 +179,15 @@ namespace PubSoft.NexusContract.Client
             // 内部异常存储在 InnerException 中，供细粒度调试使用
         }
 
-        /// <summary>
-        /// 仅投影（用于需要单纯序列化的高级场景）
-        /// </summary>
-        public IDictionary<string, object> Project<TContract>(TContract contract)
-            where TContract : notnull
-        {
-            if (contract == null)
-                throw new ArgumentNullException(nameof(contract));
-
-            try
-            {
-                var gateway = new NexusGateway(namingPolicy);
-                return gateway.Project(contract);
-            }
-            catch (ContractIncompleteException contractEx)
-            {
-                throw NexusCommunicationException.FromContractIncomplete(contractEx);
-            }
-        }
+        // 【决策 A-504】为什么 Client 不提供 Project 方法？
+        // Client 是 BFF 层通过 HTTP 调用远程 HttpApi 的工具，不应该包含本地投影逻辑。
+        // 投影是 Provider 和 Gateway 的职责，属于 HttpApi 内部实现细节。
+        // BFF 层只需要：
+        // 1. 构造契约对象（已有强类型约束）
+        // 2. 发送 HTTP 请求（SendAsync）
+        // 3. 接收 HTTP 响应（自动反序列化）
+        // 如果 BFF 需要投影能力，说明架构设计有问题（应该拆分为独立的 HttpApi 服务）
     }
 }
+
+

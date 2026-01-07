@@ -2,13 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <RootNamespace>PubSoft.NexusContract.Client</RootNamespace>
-    <AssemblyName>PubSoft.NexusContract.Client</AssemblyName>
-    <Authors>PubSoft.NexusContract</Authors>
-    <Version>1.0.0</Version>
-    <Description>PubSoft.NexusContract Client SDK - .NET 10 Elite Channel for Payment Gateway Integration</Description>
-    <Nullable>enable</Nullable>
+    <RootNamespace>NexusContract.Client</RootNamespace>
+    <AssemblyName>NexusContract.Client</AssemblyName>
+    
+    <!-- 📦 NuGet 包元数据 -->
+    <PackageId>NexusContract.Client</PackageId>
+    <Title>NexusContract Client SDK - Elite Integration Channel</Title>
+    <Description>[CN] 用于构建 NexusContract 框架支付网关集成的客户端 SDK。提供 NexusGatewayClient、工厂模式及 ASP.NET Core DI 扩展。目标 .NET 10。 | [EN] Client SDK for building payment gateway integrations with NexusContract framework. Provides NexusGatewayClient, factory patterns, and DI extensions for ASP.NET Core. Targets .NET 10.</Description>
+    <PackageTags>$(PackageTags);client;sdk;http-client;dependency-injection;aspnetcore;net10</PackageTags>
+    <PackageReleaseNotes>Initial preview with HTTP client abstractions and DI integration.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>

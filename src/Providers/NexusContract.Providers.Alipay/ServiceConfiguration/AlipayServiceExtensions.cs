@@ -1,13 +1,13 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
 using Microsoft.Extensions.DependencyInjection;
-using PubSoft.NexusContract.Abstractions.Policies;
-using PubSoft.NexusContract.Core;
-using PubSoft.NexusContract.Core.Policies.Impl;
+using NexusContract.Abstractions.Policies;
+using NexusContract.Core;
+using NexusContract.Core.Policies.Impl;
 
-namespace PubSoft.NexusContract.Providers.Alipay.ServiceConfiguration
+namespace NexusContract.Providers.Alipay.ServiceConfiguration
 {
     /// <summary>
     /// 支付宝提供商DI扩展
@@ -49,3 +49,5 @@ namespace PubSoft.NexusContract.Providers.Alipay.ServiceConfiguration
         }
     }
 }
+
+

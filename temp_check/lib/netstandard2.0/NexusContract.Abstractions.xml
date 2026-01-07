@@ -1,0 +1,404 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>NexusContract.Abstractions</name>
+    </assembly>
+    <members>
+        <member name="T:NexusContract.Abstractions.Attributes.ApiFieldAttribute">
+            <summary>
+            【规则 R-201】ApiField Annotation（字段标注）
+            
+            职责：描述字段如何从强类型对象投影到协议格式（Dictionary）。
+            
+            核心约束：Fail-Fast 原则
+            如果 IsEncrypted = true，则**必须**显式指定 Name 参数。
+            
+            ✗ 错误：[ApiField(IsEncrypted = true)]
+              启动期 NXC106 异常
+            
+            ✓ 正确：[ApiField("card_no", IsEncrypted = true)]
+            
+            理由：
+            1. 加密字段在协议层是二进制密文，投影引擎无法猜测其名称
+            2. 强制显式命名防止开发者遗忘加密字段的名称映射
+            3. Fail-Fast 验证（启动期）捕获错误，而非运行期
+            4. 支付系统的"确定性"需求：编译期和启动期都要验证
+            </summary>
+        </member>
+        <member name="P:NexusContract.Abstractions.Attributes.ApiFieldAttribute.Name">
+            <summary>
+            字段在协议中的显式名称（可选，若为空则由 INamingPolicy 决定）
+            </summary>
+        </member>
+        <member name="P:NexusContract.Abstractions.Attributes.ApiFieldAttribute.IsEncrypted">
+            <summary>
+            是否需要加密传输
+            </summary>
+        </member>
+        <member name="P:NexusContract.Abstractions.Attributes.ApiFieldAttribute.IsRequired">
+            <summary>
+            是否为必填字段
+            </summary>
+        </member>
+        <member name="P:NexusContract.Abstractions.Attributes.ApiFieldAttribute.Description">
+            <summary>
+            字段描述（用于文档生成）
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Attributes.ApiFieldAttribute.#ctor">
+            <summary>
+            默认构造函数（使用命名策略推断字段名）
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Attributes.ApiFieldAttribute.#ctor(System.String)">
+            <summary>
+            显式指定字段名的构造函数
+            </summary>
+            <param name="name">协议中的字段名</param>
+        </member>
+        <member name="T:NexusContract.Abstractions.Attributes.ApiOperationAttribute">
+            <summary>
+            【模式 P-102】ApiOperation Annotation（操作标注）
+            
+            核心职责：声明契约的交互语义（Intent），而非实现细节。
+            
+            设计原则：Intent, not Implementation
+            =====================================
+            
+            ✓ Intent（在 Attribute 中定义）：
+            - Operation：操作标识（alipay.trade.pay）
+            - HttpVerb：HTTP 动词（GET/POST/PUT）
+            - Interaction：交互模式（同步 vs 异步）
+            - Version：API 版本
+            
+            ✗ Implementation（在 Provider 中定义）：
+            - 签名算法（MD5 vs RSA vs RSA2）
+            - 加密方法（AES vs RSA vs SM4）
+            - 超时策略、重试策略、HTTP Header 管理
+            
+            好处：
+            1. 业务契约与技术适配器完全解耦
+            2. Provider 各自决定实现细节（同一契约可被多个 Provider 适配）
+            3. 模型清晰度：Attribute = 协议约束，Provider = 实现选择
+            </summary>
+        </member>
+        <member name="P:NexusContract.Abstractions.Attributes.ApiOperationAttribute.Operation">
+            <summary>
+            全局唯一的操作标识（例如：alipay.trade.pay, unionpay.query）
+            
+            这是 Contract Kernel 的主键：
+            - 路由：Provider 通过 Operation 查找处理逻辑
+            - 监控：Metrics、Tracing 的维度
+            - 配置：超时、重试、限流等策略的绑定
+            - 日志：操作的唯一标识
+            </summary>
+        </member>
+        <member name="P:NexusContract.Abstractions.Attributes.ApiOperationAttribute.Interaction">
+            <summary>
+            交互模式：请求-响应 或 单向通知
+            
+            RequestResponse：调用方等待同步响应（支付、查询）
+            OneWay：调用方不等待响应或异步回调（通知、推送）
+            </summary>
+        </member>
+        <member name="P:NexusContract.Abstractions.Attributes.ApiOperationAttribute.Verb">
+            <summary>
+            HTTP 交互动词（协议事实，不是实现细节）
+            
+            这是契约的必备属性：
+            - GET：查询、获取资源
+            - POST：支付、转账等有业务影响的操作
+            - PUT/PATCH：更新
+            - DELETE：删除
+            </summary>
+        </member>
+        <member name="P:NexusContract.Abstractions.Attributes.ApiOperationAttribute.Version">
+            <summary>
+            接口版本（可选）
+            用于 API 向后兼容性管理
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Attributes.ApiOperationAttribute.#ctor(System.String,NexusContract.Abstractions.Attributes.HttpVerb,NexusContract.Abstractions.Attributes.InteractionKind)">
+            <summary>
+            构造函数
+            </summary>
+            <param name="operation">操作标识（必须，全局唯一）</param>
+            <param name="verb">HTTP 动词（默认 POST）</param>
+            <param name="interaction">交互模式（默认请求-响应）</param>
+        </member>
+        <member name="T:NexusContract.Abstractions.Attributes.HttpVerb">
+            <summary>
+            HTTP 请求方法枚举
+            
+            这是协议事实，不是实现细节。
+            在定义契约时必须显式声明使用的 HTTP 动词。
+            例如：
+            - 查询操作通常用 GET
+            - 支付、转账通常用 POST
+            - 更新通常用 PUT
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Attributes.HttpVerb.GET">
+            <summary>
+            GET 请求（获取资源）
+            幂等、安全、可缓存
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Attributes.HttpVerb.POST">
+            <summary>
+            POST 请求（创建资源、执行操作）
+            非幂等、不安全
+            支付、转账、订单创建等关键操作通常用 POST
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Attributes.HttpVerb.PUT">
+            <summary>
+            PUT 请求（完整替换资源）
+            幂等、不安全
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Attributes.HttpVerb.DELETE">
+            <summary>
+            DELETE 请求（删除资源）
+            幂等、不安全
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Attributes.HttpVerb.PATCH">
+            <summary>
+            PATCH 请求（部分更新资源）
+            不幂等、不安全
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Attributes.HttpVerb.HEAD">
+            <summary>
+            HEAD 请求（获取资源元信息，无响应体）
+            幂等、安全
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Attributes.HttpVerb.OPTIONS">
+            <summary>
+            OPTIONS 请求（查询服务器能力）
+            幂等、安全
+            </summary>
+        </member>
+        <member name="T:NexusContract.Abstractions.Attributes.InteractionKind">
+            <summary>
+            交互模式枚举
+            定义 Contract 的交互语义（请求-响应 vs 单向通知）
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Attributes.InteractionKind.RequestResponse">
+            <summary>
+            请求-响应模式（同步）
+            调用方发起请求，等待并获取响应
+            典型场景：支付、查询、转账等需要即时反馈的操作
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Attributes.InteractionKind.OneWay">
+            <summary>
+            单向模式（异步 / 通知）
+            调用方不等待响应，或通过回调获取结果
+            典型场景：回调、通知、对账推送等无需同步响应的操作
+            </summary>
+        </member>
+        <member name="T:NexusContract.Abstractions.Configuration.ContractBoundaries">
+            <summary>
+            契约系统的物理边界定义
+            
+            这是整个系统的"宪法"常数。所有边界值的单一来源。
+            修改此处，系统全链路的行为都会随之调整（Validator/Engine/Cache/Hydration）。
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Configuration.ContractBoundaries.MaxNestingDepth">
+            <summary>
+            最大嵌套深度（物理红线）
+            
+            设计理由：
+            - Layer 1: 契约请求对象本身
+            - Layer 2: 嵌套的复杂属性
+            - Layer 3: 嵌套属性的属性
+            
+            超过 3 层会：
+            1. 增加 StackOverflow 风险
+            2. 降低代码可维护性
+            3. 强制重构为多个操作
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.Configuration.ContractBoundaries.MaxCollectionSize">
+            <summary>
+            最大集合大小（防 OOM）
+            
+            设计理由：
+            防止三方 API 返回巨大列表导致内存溢出。
+            如果需要处理超大数据集，应使用分页或流式处理。
+            </summary>
+        </member>
+        <member name="T:NexusContract.Abstractions.EmptyResponse">
+            <summary>
+            空响应类型
+            用于 OneWay 交互模式，表示调用方不期望同步响应
+            
+            设计约束：当 [ApiOperation] 的 Interaction = OneWay 时，
+            IApiRequest&lt;TResponse&gt; 中的 TResponse 必须且仅能是 EmptyResponse
+            </summary>
+        </member>
+        <member name="F:NexusContract.Abstractions.EmptyResponse.Instance">
+            <summary>
+            唯一实例（单例模式）
+            </summary>
+        </member>
+        <member name="T:NexusContract.Abstractions.Contracts.IApiRequest">
+            <summary>
+            非泛型标记接口：所有 API 请求都实现此接口
+            用于运行时反射提取真正的 IApiRequest&lt;TResponse&gt; 泛型参数
+            </summary>
+        </member>
+        <member name="T:NexusContract.Abstractions.Contracts.IApiRequest`1">
+            <summary>
+            【模式 P-101】Contract Kernel Pattern（契约内核模式）
+            
+            核心概念：契约是不可变的语义内核，请求与响应在编译期建立强类型绑定。
+            
+            架构优势：
+            1. 编译期类型安全
+               - 无需显式指定 TResponse，编译器自动推断
+               - 调用：await client.SendAsync(new PaymentRequest { ... })
+               - 类型检查发生在编译期，运行期 100% 安全
+            
+            2. 反射开销最小化
+               - 首次加载时反射一次，提取 TResponse 并缓存
+               - 后续调用直接查表，零反射开销
+               - 支撑 700+ 接口的高并发场景
+            
+            3. AI 代码生成的稳定性
+               - 类型约束使 AI 无法生成"类型不匹配"的代码
+               - 强制使用 IApiRequest&lt;TResponse&gt; 的固定形式
+               - 结果：生成 700 个接口时 bug 率接近 0%
+            </summary>
+            <typeparam name="TResponse">响应类型</typeparam>
+        </member>
+        <member name="T:NexusContract.Abstractions.Contracts.NxcErrorEnvelope">
+            <summary>
+            Standard error envelope used across server and client to convey structured NXC errors.
+            JSON shape: { "code": "NXC101", "message": "...", "data": { ... } }
+            Note: kept as a plain POCO (no Json-specific attributes) for maximum framework compatibility.
+            </summary>
+        </member>
+        <member name="T:NexusContract.Abstractions.Exceptions.ContractDiagnosticRegistry">
+            <summary>
+            契约诊断注册表
+            
+            错误码划分：
+            - 1xx (NXC1xx): 静态结构红线，由 Validator 在启动时触发
+            - 2xx (NXC2xx): 运行期守卫，由 Engine 在执行时触发
+            
+            设计理念：
+            错误码唯一确定规则，参数确定现场。当接入 ELK/Sentry 时，可按错误码自动分类和聚合。
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Exceptions.ContractDiagnosticRegistry.Format(System.String,System.Object[])">
+            <summary>
+            格式化诊断消息
+            </summary>
+            <param name="errorCode">错误码（如 NXC101）</param>
+            <param name="contextArgs">上下文参数（如 类名、属性名、路径等）</param>
+            <returns>本地化的诊断消息</returns>
+        </member>
+        <member name="M:NexusContract.Abstractions.Exceptions.ContractDiagnosticRegistry.Format(System.String,System.Globalization.CultureInfo,System.Object[])">
+            <summary>
+            格式化诊断消息（支持显式 CultureInfo）
+            </summary>
+            <param name="errorCode">错误码</param>
+            <param name="culture">目标文化（null 使用当前 UI 文化）</param>
+            <param name="contextArgs">上下文参数</param>
+            <returns>本地化的诊断消息</returns>
+        </member>
+        <member name="M:NexusContract.Abstractions.Exceptions.ContractDiagnosticRegistry.GetCategory(System.String)">
+            <summary>
+            获取错误分类（用于日志系统）
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Exceptions.ContractDiagnosticRegistry.GetSeverity(System.String)">
+            <summary>
+            获取错误严重度
+            </summary>
+        </member>
+        <member name="T:NexusContract.Abstractions.Exceptions.ContractIncompleteException">
+            <summary>
+            Fail-Fast Contract Enforcement: 契约不完整时抛出的异常
+            
+            结构化诊断模型：
+            - ErrorCode: 唯一标识码（NXC1xx 静态/NXC2xx 运行期）
+            - ContextArgs: 运行时上下文（类名、属性名、路径等）
+            - ContractType: 违规的契约类型
+            
+            设计权衡：
+            - ContractIncompleteException (本类): 用于运行时 Fail-Fast，立即中断非法操作。
+            - ContractDiagnostic (记录): 用于启动期批量扫描，收集所有问题生成报告，不抛出异常。
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Exceptions.ContractIncompleteException.#ctor(System.String,System.String,System.Object[])">
+            <summary>
+            创建诊断异常（使用错误码 + 上下文参数）
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Exceptions.ContractIncompleteException.#ctor(System.String,System.String,System.Exception,System.Object[])">
+            <summary>
+            创建诊断异常（包含内异常链）
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Exceptions.ContractIncompleteException.#ctor(System.String,System.String)">
+            <summary>
+            兼容旧版本的自由形式消息构造器
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Exceptions.ContractIncompleteException.GetDiagnosticData">
+            <summary>
+            获取结构化的诊断数据（用于日志序列化）
+            </summary>
+        </member>
+        <member name="T:NexusContract.Abstractions.Policies.INamingPolicy">
+            <summary>
+            Policy over Convention: 策略优于约定
+            命名策略接口，不同的 Provider 可以持有不同的策略（如 snake_case, camelCase, PascalCase）
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Policies.INamingPolicy.ConvertName(System.String)">
+            <summary>
+            将属性名转换为协议字段名
+            </summary>
+            <param name="propertyName">C# 属性名</param>
+            <returns>协议字段名</returns>
+        </member>
+        <member name="T:NexusContract.Abstractions.Security.IDecryptor">
+            <summary>
+            解密器接口：与 IEncryptor 对称，用于 ResponseHydrationEngine
+            
+            设计原则：
+            - 与 IEncryptor 完全对称
+            - 解密行为由 ResponseHydrationEngine 调用（不在 Attribute 中）
+            - 通常由同一个实现类同时实现 IEncryptor 和 IDecryptor
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Security.IDecryptor.Decrypt(System.String)">
+            <summary>
+            解密字段值
+            </summary>
+            <param name="cipherText">密文</param>
+            <returns>明文</returns>
+        </member>
+        <member name="T:NexusContract.Abstractions.Security.IEncryptor">
+            <summary>
+            加密器接口：解耦加密算法实现
+            注意：Attribute 内部严禁包含 Encrypt() 方法，加密行为由 ProjectionEngine 调用
+            </summary>
+        </member>
+        <member name="M:NexusContract.Abstractions.Security.IEncryptor.Encrypt(System.String)">
+            <summary>
+            加密字段值
+            </summary>
+            <param name="plainText">明文</param>
+            <returns>密文</returns>
+        </member>
+    </members>
+</doc>

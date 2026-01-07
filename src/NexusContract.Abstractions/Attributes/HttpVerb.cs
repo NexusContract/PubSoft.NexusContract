@@ -1,4 +1,4 @@
-namespace PubSoft.NexusContract.Abstractions.Attributes
+namespace NexusContract.Abstractions.Attributes
 {
     /// <summary>
     /// HTTP 请求方法枚举
@@ -56,3 +56,5 @@ namespace PubSoft.NexusContract.Abstractions.Attributes
         OPTIONS = 6
     }
 }
+
+

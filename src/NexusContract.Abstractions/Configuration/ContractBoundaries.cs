@@ -1,4 +1,4 @@
-namespace PubSoft.NexusContract.Abstractions.Configuration
+namespace NexusContract.Abstractions.Configuration
 {
     /// <summary>
     /// 契约系统的物理边界定义
@@ -33,4 +33,6 @@ namespace PubSoft.NexusContract.Abstractions.Configuration
         public const int MaxCollectionSize = 1000;
     }
 }
+
+
 

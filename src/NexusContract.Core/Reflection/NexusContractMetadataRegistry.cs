@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
@@ -7,10 +7,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using PubSoft.NexusContract.Abstractions.Attributes;
-using PubSoft.NexusContract.Abstractions.Exceptions;
+using NexusContract.Abstractions.Attributes;
+using NexusContract.Abstractions.Exceptions;
 
-namespace PubSoft.NexusContract.Core.Reflection
+namespace NexusContract.Core.Reflection
 {
     /// <summary>
     /// 【决策 A-301】NexusContractMetadataRegistry（契约元数据注册表）
@@ -798,3 +798,5 @@ namespace PubSoft.NexusContract.Core.Reflection
         ApiFieldAttribute ApiField,
         PropertyAuditResult AuditResult);
 }
+
+

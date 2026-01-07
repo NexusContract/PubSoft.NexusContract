@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
@@ -6,14 +6,14 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 #nullable enable
-using PubSoft.NexusContract.Abstractions.Configuration;
-using PubSoft.NexusContract.Abstractions.Exceptions;
-using PubSoft.NexusContract.Abstractions.Policies;
-using PubSoft.NexusContract.Abstractions.Security;
-using PubSoft.NexusContract.Core.Reflection;
-using PubSoft.NexusContract.Core.Utilities;
+using NexusContract.Abstractions.Configuration;
+using NexusContract.Abstractions.Exceptions;
+using NexusContract.Abstractions.Policies;
+using NexusContract.Abstractions.Security;
+using NexusContract.Core.Reflection;
+using NexusContract.Core.Utilities;
 
-namespace PubSoft.NexusContract.Core.Hydration
+namespace NexusContract.Core.Hydration
 {
     /// <summary>
     /// 响应回填引擎（Response Hydration Engine）
@@ -328,3 +328,5 @@ namespace PubSoft.NexusContract.Core.Hydration
         }
     }
 }
+
+

@@ -1,4 +1,4 @@
-namespace PubSoft.NexusContract.Abstractions
+namespace NexusContract.Abstractions
 {
     /// <summary>
     /// 空响应类型
@@ -17,3 +17,5 @@ namespace PubSoft.NexusContract.Abstractions
         private EmptyResponse() { }
     }
 }
+
+

@@ -1,4 +1,4 @@
-namespace PubSoft.NexusContract.Abstractions.Security
+namespace NexusContract.Abstractions.Security
 {
     /// <summary>
     /// 加密器接口：解耦加密算法实现
@@ -14,3 +14,5 @@ namespace PubSoft.NexusContract.Abstractions.Security
         string Encrypt(string plainText);
     }
 }
+
+

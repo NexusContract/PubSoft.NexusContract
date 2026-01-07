@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using PubSoft.NexusContract.Abstractions.Attributes;
-using PubSoft.NexusContract.Core.Utilities;
+using NexusContract.Abstractions.Attributes;
+using NexusContract.Core.Utilities;
 
-namespace PubSoft.NexusContract.Core.Reflection
+namespace NexusContract.Core.Reflection
 {
     /// <summary>
     /// 【决策 A-303】ContractAuditor（契约审计员）
@@ -85,3 +85,5 @@ namespace PubSoft.NexusContract.Core.Reflection
         }
     }
 }
+
+

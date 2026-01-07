@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 #nullable enable
@@ -9,10 +9,10 @@ using System.Linq;
 using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
-using PubSoft.NexusContract.Abstractions.Policies;
-using PubSoft.NexusContract.Core.Policies.Impl;
+using NexusContract.Abstractions.Policies;
+using NexusContract.Core.Policies.Impl;
 
-namespace PubSoft.NexusContract.Client.DependencyInjection
+namespace NexusContract.Client.DependencyInjection
 {
     /// <summary>
     /// .NET 10 DI 扩展方法（零外部依赖）
@@ -135,4 +135,6 @@ namespace PubSoft.NexusContract.Client.DependencyInjection
         }
     }
 }
+
+
 

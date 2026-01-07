@@ -1,4 +1,4 @@
-namespace PubSoft.NexusContract.Abstractions.Policies
+namespace NexusContract.Abstractions.Policies
 {
     /// <summary>
     /// Policy over Convention: 策略优于约定
@@ -14,3 +14,5 @@ namespace PubSoft.NexusContract.Abstractions.Policies
         string ConvertName(string propertyName);
     }
 }
+
+

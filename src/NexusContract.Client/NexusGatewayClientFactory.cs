@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 #nullable enable
@@ -6,9 +6,9 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Net.Http;
-using PubSoft.NexusContract.Abstractions.Policies;
+using NexusContract.Abstractions.Policies;
 
-namespace PubSoft.NexusContract.Client
+namespace NexusContract.Client
 {
     /// <summary>
     /// NexusGateway 客户端工厂（.NET 10 静态工厂）
@@ -110,3 +110,5 @@ namespace PubSoft.NexusContract.Client
         }
     }
 }
+
+

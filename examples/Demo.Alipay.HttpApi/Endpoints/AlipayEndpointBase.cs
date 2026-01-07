@@ -8,10 +8,10 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using FastEndpoints;
-using PubSoft.NexusContract.Abstractions.Attributes;
-using PubSoft.NexusContract.Abstractions.Contracts;
-using PubSoft.NexusContract.Providers.Alipay;
-using PubSoft.NexusContract.Core.Reflection;
+using NexusContract.Abstractions.Attributes;
+using NexusContract.Abstractions.Contracts;
+using NexusContract.Providers.Alipay;
+using NexusContract.Core.Reflection;
 
 namespace Demo.Alipay.HttpApi.Endpoints
 {

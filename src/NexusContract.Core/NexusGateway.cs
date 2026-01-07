@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 #nullable enable
@@ -6,15 +6,15 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using PubSoft.NexusContract.Abstractions.Contracts;
-using PubSoft.NexusContract.Abstractions.Exceptions;
-using PubSoft.NexusContract.Abstractions.Policies;
-using PubSoft.NexusContract.Abstractions.Security;
-using PubSoft.NexusContract.Core.Hydration;
-using PubSoft.NexusContract.Core.Projection;
-using PubSoft.NexusContract.Core.Reflection;
+using NexusContract.Abstractions.Contracts;
+using NexusContract.Abstractions.Exceptions;
+using NexusContract.Abstractions.Policies;
+using NexusContract.Abstractions.Security;
+using NexusContract.Core.Hydration;
+using NexusContract.Core.Projection;
+using NexusContract.Core.Reflection;
 
-namespace PubSoft.NexusContract.Core
+namespace NexusContract.Core
 {
     /// <summary>
     /// 执行上下文：包含操作元数据
@@ -190,3 +190,5 @@ namespace PubSoft.NexusContract.Core
         }
     }
 }
+
+

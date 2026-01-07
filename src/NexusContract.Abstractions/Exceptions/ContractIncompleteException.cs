@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace PubSoft.NexusContract.Abstractions.Exceptions
+namespace NexusContract.Abstractions.Exceptions
 {
     /// <summary>
     /// Fail-Fast Contract Enforcement: 契约不完整时抛出的异常
@@ -83,3 +83,5 @@ namespace PubSoft.NexusContract.Abstractions.Exceptions
         }
     }
 }
+
+

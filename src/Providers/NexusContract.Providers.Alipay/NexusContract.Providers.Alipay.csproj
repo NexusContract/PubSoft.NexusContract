@@ -2,13 +2,16 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
-    <LangVersion>latest</LangVersion>
-    <RootNamespace>PubSoft.NexusContract.Providers.Alipay</RootNamespace>
-    <AssemblyName>PubSoft.NexusContract.Providers.Alipay</AssemblyName>
-    <Version>1.0.0</Version>
-    <Description>Alipay Provider - Pure provider implementation (Contract and Endpoint examples in examples/)</Description>
+    <RootNamespace>NexusContract.Providers.Alipay</RootNamespace>
+    <AssemblyName>NexusContract.Providers.Alipay</AssemblyName>
+    
+    <!-- 📦 NuGet 包元数据 -->
+    <PackageId>NexusContract.Providers.Alipay</PackageId>
+    <Title>NexusContract Alipay Provider - OpenAPI v3 Integration</Title>
+    <Description>[CN] NexusContract 框架的生产级支付宝提供商实现。支持 OpenAPI v3(RESTful)、RSA2 签名、自动签名验证及所有主要支付宝交易 API(支付、创建、查询、退款、关闭、预创建)。包含 DI 扩展及零代码端点支持。 | [EN] Production-ready Alipay provider implementation for NexusContract framework. Supports OpenAPI v3 (RESTful), RSA2 signing, automatic signature verification, and all major Alipay trade APIs (pay, create, query, refund, close, precreate). Includes DI extensions and zero-code endpoint support.</Description>
+    <PackageTags>$(PackageTags);alipay;payment;provider;openapi;rsa2;fastendpoints;china-payment;net10</PackageTags>
+    <PackageReleaseNotes>Initial preview with full Alipay OpenAPI v3 support and RSA2 signing.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace PubSoft.NexusContract.Abstractions.Exceptions
+namespace NexusContract.Abstractions.Exceptions
 {
     /// <summary>
     /// 契约诊断注册表
@@ -290,3 +290,5 @@ namespace PubSoft.NexusContract.Abstractions.Exceptions
         }
     }
 }
+
+

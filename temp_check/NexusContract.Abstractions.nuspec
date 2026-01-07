@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>NexusContract.Abstractions</id>
+    <version>1.0.0-preview.1</version>
+    <title>NexusContract Abstractions - Contract-First Architecture Foundation</title>
+    <authors>NexusContract</authors>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <readme>README.md</readme>
+    <projectUrl>https://github.com/NexusContract/PubSoft.NexusContract</projectUrl>
+    <description>Pure abstractions for building payment gateway integrations using Kernelized Contract Integration (KCI) pattern. Includes IApiRequest&lt;T&gt;, ApiOperation, ApiField attributes, and structured diagnostic codes (NXC1xx-3xx). Zero runtime dependencies, netstandard2.0 compatible.</description>
+    <releaseNotes>Initial preview release with core abstractions and diagnostic framework.</releaseNotes>
+    <copyright>Copyright (c) 2025-2026 NexusContract. All rights reserved.</copyright>
+    <tags>payment gateway kci contract metadata-driven high-performance net10 alipay unionpay wechatpay fastendpoints repr repr-p architecture abstractions attributes kci-pattern payment-gateway netstandard</tags>
+    <repository type="git" url="https://github.com/NexusContract/PubSoft.NexusContract.git" commit="03d059fbe07d3ef7e3b1fd9a918190e4101692b3" />
+    <dependencies>
+      <group targetFramework=".NETStandard2.0" />
+    </dependencies>
+  </metadata>
+</package>

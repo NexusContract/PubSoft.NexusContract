@@ -1,7 +1,7 @@
 using System;
 using System.Reflection;
 
-namespace PubSoft.NexusContract.Core.Reflection
+namespace NexusContract.Core.Reflection
 {
     /// <summary>
     /// 【决策 A-302】PropertyAuditResult（属性审计结果缓存）
@@ -61,3 +61,5 @@ namespace PubSoft.NexusContract.Core.Reflection
         public bool IsComplexType { get; } = isComplexType;
     }
 }
+
+

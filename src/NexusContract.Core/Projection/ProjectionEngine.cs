@@ -1,17 +1,17 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using PubSoft.NexusContract.Abstractions.Configuration;
-using PubSoft.NexusContract.Abstractions.Exceptions;
-using PubSoft.NexusContract.Abstractions.Policies;
-using PubSoft.NexusContract.Abstractions.Security;
-using PubSoft.NexusContract.Core.Reflection;
+using NexusContract.Abstractions.Configuration;
+using NexusContract.Abstractions.Exceptions;
+using NexusContract.Abstractions.Policies;
+using NexusContract.Abstractions.Security;
+using NexusContract.Core.Reflection;
 
-namespace PubSoft.NexusContract.Core.Projection
+namespace NexusContract.Core.Projection
 {
     /// <summary>
     /// 【决策 A-401】ProjectionEngine（运行时投影引擎）
@@ -185,3 +185,5 @@ namespace PubSoft.NexusContract.Core.Projection
         }
     }
 }
+
+

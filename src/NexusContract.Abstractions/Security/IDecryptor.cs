@@ -1,4 +1,4 @@
-namespace PubSoft.NexusContract.Abstractions.Security
+namespace NexusContract.Abstractions.Security
 {
     /// <summary>
     /// 解密器接口：与 IEncryptor 对称，用于 ResponseHydrationEngine
@@ -18,3 +18,5 @@ namespace PubSoft.NexusContract.Abstractions.Security
         string Decrypt(string cipherText);
     }
 }
+
+

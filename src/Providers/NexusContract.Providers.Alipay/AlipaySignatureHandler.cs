@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
@@ -10,7 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PubSoft.NexusContract.Providers.Alipay
+namespace NexusContract.Providers.Alipay
 {
     /// <summary>
     /// 支付宝 OpenAPI v3 签名处理器
@@ -98,3 +98,5 @@ namespace PubSoft.NexusContract.Providers.Alipay
         }
     }
 }
+
+

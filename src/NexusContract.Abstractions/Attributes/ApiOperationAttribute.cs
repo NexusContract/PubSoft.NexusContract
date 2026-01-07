@@ -1,9 +1,9 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
 
-namespace PubSoft.NexusContract.Abstractions.Attributes
+namespace NexusContract.Abstractions.Attributes
 {
     /// <summary>
     /// 【模式 P-102】ApiOperation Annotation（操作标注）
@@ -90,3 +90,5 @@ namespace PubSoft.NexusContract.Abstractions.Attributes
         }
     }
 }
+
+

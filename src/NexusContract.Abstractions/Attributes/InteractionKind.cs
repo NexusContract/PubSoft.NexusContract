@@ -1,4 +1,4 @@
-namespace PubSoft.NexusContract.Abstractions.Attributes
+namespace NexusContract.Abstractions.Attributes
 {
     /// <summary>
     /// 交互模式枚举
@@ -21,3 +21,5 @@ namespace PubSoft.NexusContract.Abstractions.Attributes
         OneWay = 2
     }
 }
+
+

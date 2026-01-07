@@ -1,8 +1,8 @@
 // Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
-using PubSoft.NexusContract.Abstractions.Attributes;
-using PubSoft.NexusContract.Abstractions.Contracts;
+using NexusContract.Abstractions.Attributes;
+using NexusContract.Abstractions.Contracts;
 
 namespace Demo.Alipay.Contract.Transactions
 {

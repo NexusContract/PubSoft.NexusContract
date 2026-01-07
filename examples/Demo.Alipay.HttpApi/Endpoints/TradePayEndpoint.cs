@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using Demo.Alipay.Contract.Transactions;
-using PubSoft.NexusContract.Providers.Alipay;
+using NexusContract.Providers.Alipay;
 
 namespace Demo.Alipay.HttpApi.Endpoints
 {

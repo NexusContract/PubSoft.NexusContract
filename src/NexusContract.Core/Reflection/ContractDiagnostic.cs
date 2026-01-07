@@ -1,10 +1,10 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
+// Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
-using PubSoft.NexusContract.Abstractions.Exceptions;
+using NexusContract.Abstractions.Exceptions;
 
-namespace PubSoft.NexusContract.Core.Reflection
+namespace NexusContract.Core.Reflection
 {
     /// <summary>
     /// 【决策 A-305】结构化契约诊断信息
@@ -92,3 +92,5 @@ namespace PubSoft.NexusContract.Core.Reflection
         Warning = 1
     }
 }
+
+
