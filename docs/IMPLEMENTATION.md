@@ -38,10 +38,10 @@
 
 ## 🔍 核心概念：六大组件的工程逻辑
 
-### 1. ReflectionCache（元数据冻结）
+### 1. NexusContractMetadataRegistry（契约元数据注册表）
 
 **工程逻辑**：
-- **ReflectionCache**：启动时，对每个 Contract 进行反射一次，提取 Attribute 元数据并缓存（ConcurrentDictionary）。首次 O(n)，后续 O(1)。
+- **NexusContractMetadataRegistry**：启动时，对每个 Contract 进行反射一次，提取 Attribute 元数据并缓存（ConcurrentDictionary）。首次 O(n)，后续 O(1)。
 - 将全量元数据冻结为高效缓存，让 400 TPS 的高频查询完全零损耗。
 
 **手感**：为什么要这样做？
@@ -50,7 +50,7 @@
 方案 B（我们的做法）：启动一次反射 → 后续 O(1) 缓存查询 → P50 = P99 无波动
 ```
 
-参考：[src/NexusContract.Core/Reflection/ReflectionCache.cs](../../src/NexusContract.Core/Reflection/ReflectionCache.cs)
+参考：[src/NexusContract.Core/Reflection/NexusContractMetadataRegistry.cs](../../src/NexusContract.Core/Reflection/NexusContractMetadataRegistry.cs)
 
 ---
 
@@ -110,24 +110,47 @@
 
 ---
 
-### 5️⃣ NexusGateway + NexusProxyEndpoint（指挥部）【NEW】
+### 5️⃣ NexusGateway + Provider（指挥部）
 
 **工程逻辑**：
 - **NexusGateway**：协调上述所有组件，执行四阶段管道。
-- **NexusProxyEndpoint**：零代码端点，仅负责路由声明，所有业务逻辑都交给 NexusGateway。
+- **Provider**：封装平台特定逻辑（签名、HTTP、响应验证），调用 Gateway 执行。
+- **Endpoint**：框架特定集成层（FastEndpoints、Minimal API、MVC），调用 Provider。
 
-**手感**：这就是 REPR-P 模式的灵魂。
+**架构层次**：
 ```
-传统方式：Endpoint 中写业务逻辑（投影、加密、签名、HTTP、回填）
-我们的做法：Endpoint 继承 NexusProxyEndpoint，一行代码搞定
+Endpoint (框架特定)
+    ↓ 调用
+Provider (平台特定，框架无关)
+    ↓ 调用
+NexusGateway (通用引擎)
+    ↓ 操作
+Contract (纯POCO)
+```
 
-public class PaymentEndpoint : NexusProxyEndpoint<PaymentRequest, PaymentResponse>
+**实例（FastEndpoints）**：
+```csharp
+// 1. Endpoint 层（FastEndpoints 特定）
+public class TradePayEndpoint : AlipayEndpointBase<TradePayRequest>
 {
-    // 就这样！Gateway 会自动执行四阶段管道
+    // 零代码！路由和响应类型从 Contract 自动推断
 }
+
+// 2. Provider 层（框架无关）
+public class AlipayProvider
+{
+    public async Task<TResponse> ExecuteAsync<TResponse>(
+        IApiRequest<TResponse> request, CancellationToken ct)
+    {
+        // 调用 Gateway，传入 HTTP 执行器（签名、网络调用）
+        return await _gateway.ExecuteAsync(request, HttpExecutor, ct);
+    }
+}
+
+// 3. Gateway 自动执行四阶段管道
 ```
 
-参考：[NexusGateway.cs](../../src/NexusContract.Core/NexusGateway.cs) 和 [NexusProxyEndpoint.cs](../../src/NexusContract.Core/Endpoints/NexusProxyEndpoint.cs)
+参考：[NexusGateway.cs](../../src/NexusContract.Core/NexusGateway.cs) 和 [AlipayProvider.cs](../../src/Providers/NexusContract.Providers.Alipay/AlipayProvider.cs)
 
 ---
 
@@ -198,8 +221,37 @@ public class UnionPayProvider : AlipayProvider  // 继承基础Provider
     }
 }
 
-// 4. FastEndpoints 集成（路由由Provider管理）
-public class PaymentEndpoint : NexusProxyEndpoint<PaymentRequest>
+// 4. FastEndpoints 集成（框架特定）
+public abstract class UnionPayEndpointBase<TRequest> : Endpoint<TRequest>
+    where TRequest : class, IApiRequest
+{
+    private readonly UnionPayProvider _provider;
+    
+    protected UnionPayEndpointBase(UnionPayProvider provider)
+    {
+        _provider = provider;
+    }
+    
+    public override void Configure()
+    {
+        // 从 [ApiOperation] 提取路由
+        var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(typeof(TRequest));
+        Post(ConvertToRoute(metadata.Operation.Operation));
+    }
+    
+    public override async Task HandleAsync(TRequest req, CancellationToken ct)
+    {
+        // 调用 Provider
+        var response = await _provider.ExecuteAsync(req, ct);
+        await SendAsync(response, cancellation: ct);
+    }
+}
+
+// 5. 具体 Endpoint（零代码）
+public class PaymentEndpoint : UnionPayEndpointBase<PaymentRequest>
+{
+    public PaymentEndpoint(UnionPayProvider provider) : base(provider) { }
+}
 {
     // 路由配置在Provider层面实现，不需要每个Endpoint重复定义
     // Provider会根据[ApiOperation]自动映射路由
@@ -377,7 +429,7 @@ public string CardNo { get; set; }
 本手册核心：**不讲实现细节，讲工程手感**。
 
 关键理解：
-- ✅ **ReflectionCache**：启动冻结 → 运行时零反射
+- ✅ **NexusContractMetadataRegistry**：启动冻结 → 运行时零反射
 - ✅ **ContractValidator/Auditor**：Fail-Fast 宪法执法 → 坏契约无法启动
 - ✅ **ProjectionEngine/ExpressionTree**：递归投影 + 预编译 → 微观开销（显著优于直接反射，远小于网络 I/O）
 - ✅ **ResponseHydrationEngine**：对称回填 + 强制类型纠偏 → 多态安全

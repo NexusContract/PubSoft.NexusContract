@@ -24,7 +24,7 @@
 
 ### 3. 【决策 A-301】Frozen Metadata (冷冻元数据)
 
-启动期完成全量反射与约束审计，结果存入不可变的 `ReflectionCache`。运行期 **零反射** 开销，P99 曲线平滑如镜。
+启动期完成全量反射与约束审计，结果存入不可变的 `NexusContractMetadataRegistry`。运行期 **零反射** 开销，P99 曲线平滑如镜。
 
 ---
 

@@ -2,12 +2,12 @@
 
 ## 定位
 
-本项目仅提供**支付宝Provider核心实现**，不包含具体的Contract和Endpoint示例。
+本项目提供**支付宝Provider核心实现**，负责平台特定的业务逻辑。
 
-- ✅ **包含**：`AlipayProvider.cs` + `AlipayProxyEndpoint.cs` + 配置
-- ✅ **包含**：RSA签名、HTTP通信、响应验证
-- ❌ **不包含**：TradePayRequest等具体契约
-- ❌ **不包含**：TradePayEndpoint等具体端点实现
+- ✅ **包含**：`AlipayProvider.cs` + RSA签名 + HTTP通信 + 响应验证
+- ✅ **框架无关**：可用于 FastEndpoints、Minimal API、gRPC 等任何场景
+- ❌ **不包含**：TradePayRequest等具体契约（由业务层定义）
+- ❌ **不包含**：Endpoint实现（由 Web 框架层实现）
 
 ## 完整示例见
 
@@ -38,23 +38,12 @@ public class AlipayProvider : IAsyncDisposable
 - 不依赖HTTP框架（FastEndpoints等）
 - 纯业务层实现，可独立测试
 
-### AlipayProxyEndpoint
-
-```csharp
-public abstract class AlipayProxyEndpoint<TRequest> : NexusProxyEndpoint<TRequest>
-    where TRequest : class, IApiRequest
-{
-    // 支付宝端点基类
-    // 自动反射提取TResponse类型
-}
-```
-
 ## 使用流程
 
 ```
-你的Contract类
+你的Contract类 (IApiRequest<TResponse>)
   ↓
-你的Endpoint类（继承AlipayProxyEndpoint<TRequest>）
+你的Endpoint类 (继承框架特定基类)
   ↓
 AlipayProvider.ExecuteAsync(request)
   ↓
@@ -74,8 +63,9 @@ services.AddAlipayProvider(config);
 ## 快速开始
 
 1. 在自己的项目中定义Contract（继承 `IApiRequest<TResponse>`）
-2. 定义Endpoint（继承 `AlipayProxyEndpoint<TContract>`）
+2. 定义Endpoint（继承框架特定基类，如 `AlipayEndpointBase<TRequest>`）
 3. 注入AlipayProvider，调用ExecuteAsync
 
 参考完整示例：[examples/Demo.Alipay.HttpApi](../../examples/Demo.Alipay.HttpApi)
+
 

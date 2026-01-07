@@ -81,30 +81,46 @@ public string CardNo { get; set; }
 
 ---
 
-### 【红线 4】命名策略单调性
+### 【红线 4】隐式字段的命名一致性（最佳实践）
 
 ```
-一个 Contract 树内，所有 [ApiField] 必须遵循同一命名策略。
+推荐：未显式标注 [ApiField] 的属性应遵循统一的命名风格。
+绝对：显式标注 [ApiField("xxx")] 的字段可以使用任意命名（精确映射三方API）。
 ```
 
-**禁止行为**：
+**最佳实践**：
 ```csharp
-// ✗ 违宪：混用策略
+// ✓ 推荐：隐式字段统一风格（依赖 NamingPolicy 推导）
 public class Order
 {
-    [ApiField("order_id")]      // SnakeCase
+    [ApiField]  // 推导为 order_id（统一使用 SnakeCase）
     public string OrderId { get; set; }
     
-    [ApiField("CustomerName")]  // PascalCase（违规！）
+    [ApiField]  // 推导为 customer_name（统一使用 SnakeCase）
     public string CustomerName { get; set; }
+}
+
+// ✓ 允许：显式字段精确映射三方API（不受 NamingPolicy 约束）
+public class AlipayLegacyRequest
+{
+    [ApiField("buyer_id")]       // 三方字段：SnakeCase
+    public string BuyerId { get; set; }
+    
+    [ApiField("BuyerLogonId")]   // 三方字段：PascalCase（老接口遗留）
+    public string BuyerLogonId { get; set; }
 }
 ```
 
 **为什么？**
-- ReflectionCache 在扫描元数据时假设策略是线性的
-- 混用策略会导致 ProjectionEngine 无法正确推导隐式字段的名称
+- `[ApiField("xxx")]` 显式命名的**本质目的**就是精确锁定字段名，不管三方API用什么命名风格
+- 三方API（如 Alipay 老接口）可能混用命名策略，我们必须精确映射
+- NamingPolicy 只影响**隐式字段**的推导，显式字段直接使用 `Name` 属性
 
-**触发诊断码**：**NXC108**（命名策略不一致）
+**架构保证**：
+- ProjectionEngine 优先使用 `ApiField.Name`（精确映射）
+- 仅在 `Name` 为空时才调用 `NamingPolicy.ConvertName`（自动推导）
+
+**注意**：当前版本**未实现 NXC108 检查**，命名策略混用不会触发编译错误，但建议遵循上述最佳实践以提高代码可读性。
 
 ---
 
@@ -232,7 +248,6 @@ public class UnionPayProvider
 | **NXC105** | 循环引用 | A 包含 B，B 包含 A | 重设计对象图 |
 | **NXC106** | 加密字段未锁定 | `IsEncrypted=true` 无 `Name` | 添加 `[ApiField("name", IsEncrypted=true)]` |
 | **NXC107** | 嵌套对象未命名 | 复杂属性无 `[ApiField]` | 标注 `[ApiField("name")]` |
-| **NXC108** | 命名策略不一致 | 树内混用 SnakeCase/CamelCase | 统一为同一策略 |
 
 ### 出向错误区间：NXC2xx （投影时感知）
 
@@ -257,7 +272,7 @@ public class UnionPayProvider
 ### 【决策 A-301】元数据冷冻（Frozen Metadata）
 
 ```
-启动期：执行全量反射，构建 ReflectionCache
+启动期：执行全量反射，构建 NexusContractMetadataRegistry
 运行期：零反射查询，所有操作 O(1)
 ```
 
@@ -344,7 +359,7 @@ Provider 层：JsonNode → byte[]（编码由 Provider 自主选择）
 本宪法对应的代码约束已嵌入到：
 - `ContractValidator`（NXC 检查）
 - `ProjectionEngine`（投影规则）
-- `ReflectionCache`（元数据冷冻）
+- `NexusContractMetadataRegistry`（元数据冷冻）
 - 各 Provider 的独立配置
 
 开发者首次看到 NXC1xx 错误时，直接查阅本文第三章，就能秒懂问题所在。

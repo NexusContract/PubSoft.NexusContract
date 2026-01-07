@@ -12,7 +12,7 @@ using PubSoft.NexusContract.Abstractions.Attributes;
 namespace PubSoft.NexusContract.Core.Reflection
 {
     /// <summary>
-    /// 【决策 A-301】ReflectionCache（冻结式元数据仓库）
+    /// 【决策 A-301】NexusContractMetadataRegistry（契约元数据注册表）
     /// 
     /// 核心职能：
     /// 1. 发现（Discovery）：扫描契约类的 Attribute 结构
@@ -58,16 +58,20 @@ namespace PubSoft.NexusContract.Core.Reflection
     /// 使用 ConcurrentDictionary 实现懒加载冻结。
     /// 首次访问某个类型时触发反射 + 验证，后续访问返回缓存结果。
     /// 约束：不允许运行时修改元数据，所有契约必须在设计阶段明确。
+    /// 
+    /// 命名说明：
+    /// 旧名 ReflectionCache 描述"实现手段"，新名 NexusContractMetadataRegistry 描述"架构职责"。
+    /// 这不仅仅是一个缓存，而是契约元数据的权威注册表和管理中心。
     /// </summary>
-    public sealed class ReflectionCache
+    public sealed class NexusContractMetadataRegistry
     {
-        private static readonly Lazy<ReflectionCache> _instance = new(() => new ReflectionCache());
-        public static ReflectionCache Instance => _instance.Value;
+        private static readonly Lazy<NexusContractMetadataRegistry> _instance = new(() => new NexusContractMetadataRegistry());
+        public static NexusContractMetadataRegistry Instance => _instance.Value;
 
         // 核心冷冻库：Key 是契约类型，Value 是冷冻后的元数据
         private readonly ConcurrentDictionary<Type, ContractMetadata> _cache = new();
 
-        private ReflectionCache() { }
+        private NexusContractMetadataRegistry() { }
 
         /// <summary>
         /// 获取契约的元数据（如果不存在则触发"冷冻"流程）

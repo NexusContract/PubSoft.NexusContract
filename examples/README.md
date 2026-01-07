@@ -62,7 +62,7 @@ curl -X POST http://localhost:5000/v3/alipay/trade/create \
 Demo.Alipay.Contract (契约层)
   ↓
 Demo.Alipay.HttpApi (应用层)
-  ├→ Endpoint (继承 NexusProxyEndpoint<TradePayRequest>)
+  ├→ Endpoint (继承 AlipayEndpointBase<TradePayRequest>)
   └→ Program.cs (FastEndpoints集成)
   ↓
 NexusContract.Providers.Alipay (Provider核心)
@@ -108,7 +108,7 @@ public class TradeRefundEndpoint : AlipayEndpointBase<TradeRefundRequest>
 
 ✅ **零配置路由** - 路由来自[ApiOperation]属性
 
-✅ **单泛型Endpoint** - NexusProxyEndpoint<TRequest>自动推断TResponse
+✅ **单泛型Endpoint** - AlipayEndpointBase<TRequest>自动推断TResponse
 
 ✅ **四阶段自动化** - 验证→投影→执行→回填全自动
 

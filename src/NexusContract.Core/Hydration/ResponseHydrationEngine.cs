@@ -52,7 +52,7 @@ namespace PubSoft.NexusContract.Core.Hydration
             if (source == null)
                 throw new ArgumentNullException(nameof(source));
 
-            var metadata = ReflectionCache.Instance.GetMetadata(typeof(T));
+            var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(typeof(T));
 
             // 【性能觉醒】优先使用预编译的 Hydrator（Expression Tree → Delegate）
             // 性能提升：从反射 SetValue（~1000ns）→ 原生委托（~20ns），约 50 倍提升
@@ -89,7 +89,7 @@ namespace PubSoft.NexusContract.Core.Hydration
                 );
             }
 
-            var metadata = ReflectionCache.Instance.GetMetadata(type);
+            var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(type);
             var instance = Activator.CreateInstance(type)!;
             var typeFullName = type.FullName ?? type.Name ?? "Unknown";
             var typeName2 = type.Name ?? "Unknown";

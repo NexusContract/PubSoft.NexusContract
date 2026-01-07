@@ -51,7 +51,7 @@ namespace PubSoft.NexusContract.Core.Projection
                 throw new ArgumentNullException(nameof(contract));
 
             var contractType = contract.GetType();
-            var metadata = ReflectionCache.Instance.GetMetadata(contractType);
+            var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(contractType);
 
             // 【性能觉醒】优先使用预编译的 Projector（Expression Tree → Delegate）
             // 性能提升：从反射级（~100ns）→ 原生委托级（~10ns），约 10 倍提升
@@ -85,7 +85,7 @@ namespace PubSoft.NexusContract.Core.Projection
 
             var contractType = contract.GetType();
             var contractTypeName = contractType.FullName ?? contractType.Name ?? "Unknown";
-            var metadata = ReflectionCache.Instance.GetMetadata(contractType);
+            var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(contractType);
             var result = new Dictionary<string, object>();
 
             foreach (var pm in metadata.Properties)

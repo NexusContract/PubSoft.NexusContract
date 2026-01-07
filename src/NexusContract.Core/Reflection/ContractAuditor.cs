@@ -63,7 +63,7 @@ namespace PubSoft.NexusContract.Core.Reflection
         }
 
         /// <summary>
-        /// 审计所有属性（在 ReflectionCache 的 BuildMetadata 中调用）
+        /// 审计所有属性（在 NexusContractMetadataRegistry 的 BuildMetadata 中调用）
         /// </summary>
         public static List<PropertyAuditResult> AuditAllProperties(
             Type contractType,

@@ -11,7 +11,7 @@ using FastEndpoints;
 using PubSoft.NexusContract.Abstractions.Attributes;
 using PubSoft.NexusContract.Abstractions.Contracts;
 using PubSoft.NexusContract.Providers.Alipay;
-using NexusReflectionCache = PubSoft.NexusContract.Core.Reflection.ReflectionCache;
+using PubSoft.NexusContract.Core.Reflection;
 
 namespace Demo.Alipay.HttpApi.Endpoints
 {
@@ -23,16 +23,45 @@ namespace Demo.Alipay.HttpApi.Endpoints
     /// 2. 从Contract的IApiRequest&lt;TResponse&gt;自动推断响应类型
     /// 3. 自动调用AlipayProvider执行请求
     /// 4. 子类零代码实现，仅需类名声明
+    /// 
+    /// 性能优化：
+    /// - 类级别静态缓存：每个 TRequest 类型的响应类型和 MethodInfo 只解析一次
+    /// - 比字典查询更快（直接访问静态字段，零哈希计算）
     /// </summary>
     public abstract class AlipayEndpointBase<TRequest>(AlipayProvider alipayProvider) : Endpoint<TRequest>
         where TRequest : class, IApiRequest
     {
         private readonly AlipayProvider _alipayProvider = alipayProvider ?? throw new ArgumentNullException(nameof(alipayProvider));
 
+        /// <summary>
+        /// 类级别缓存：TRequest 的响应类型（每个泛型实例化只计算一次）
+        /// 例如：AlipayEndpointBase&lt;TradePayRequest&gt; 和 AlipayEndpointBase&lt;TradeRefundRequest&gt; 各有独立的静态字段
+        /// </summary>
+        private static readonly Type CachedResponseType = ExtractResponseType();
+
+        /// <summary>
+        /// 类级别缓存：ExecuteAsync 的 MethodInfo（避免重复反射）
+        /// </summary>
+        private static readonly MethodInfo CachedExecuteMethod = typeof(AlipayProvider)
+            .GetMethod(nameof(AlipayProvider.ExecuteAsync))!
+            .MakeGenericMethod(CachedResponseType);
+
+        /// <summary>
+        /// 从 TRequest 提取响应类型（启动时执行一次）
+        /// </summary>
+        private static Type ExtractResponseType()
+        {
+            Type apiRequestInterface = typeof(TRequest)
+                .GetInterfaces()
+                .First(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IApiRequest<>));
+
+            return apiRequestInterface.GetGenericArguments()[0];
+        }
+
         public override void Configure()
         {
-            // 使用ReflectionCache获取契约元数据（自动缓存）
-            var metadata = NexusReflectionCache.Instance.GetMetadata(typeof(TRequest));
+            // 使用契约元数据注册表获取元数据（自动缓存）
+            var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(typeof(TRequest));
             
             if (metadata.Operation == null)
             {
@@ -74,28 +103,8 @@ namespace Demo.Alipay.HttpApi.Endpoints
         /// <inheritdoc />
         public override async Task HandleAsync(TRequest req, CancellationToken ct)
         {
-            // 使用ReflectionCache获取契约元数据（已缓存，O(1)查询）
-            var metadata = NexusReflectionCache.Instance.GetMetadata(typeof(TRequest));
-            
-            // 从IApiRequest<TResponse>提取响应类型
-            var apiRequestInterface = typeof(TRequest)
-                .GetInterfaces()
-                .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition().Name == "IApiRequest`1");
-
-            if (apiRequestInterface == null)
-            {
-                throw new InvalidOperationException(
-                    $"Request type '{typeof(TRequest).Name}' must implement IApiRequest<TResponse>.");
-            }
-
-            var responseType = apiRequestInterface.GetGenericArguments()[0];
-
-            // 动态调用 ExecuteAsync<TResponse>（使用缓存的MethodInfo提高性能）
-            var executeMethod = typeof(AlipayProvider)
-                .GetMethod("ExecuteAsync")!
-                .MakeGenericMethod(responseType);
-
-            var responseTask = (Task)executeMethod.Invoke(_alipayProvider, new object[] { req, ct })!;
+            // 直接使用类级别缓存（零开销）
+            Task responseTask = (Task)CachedExecuteMethod.Invoke(_alipayProvider, new object[] { req, ct })!;
             await responseTask.ConfigureAwait(false);
 
             // 提取结果
@@ -103,7 +112,7 @@ namespace Demo.Alipay.HttpApi.Endpoints
 
             // 序列化并写入HTTP响应
             HttpContext.Response.ContentType = "application/json";
-            await JsonSerializer.SerializeAsync(HttpContext.Response.Body, result, result!.GetType(), cancellationToken: ct);
+            await JsonSerializer.SerializeAsync(HttpContext.Response.Body, result, CachedResponseType, cancellationToken: ct);
         }
     }
 }

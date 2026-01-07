@@ -4,12 +4,8 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using PubSoft.NexusContract.Abstractions.Attributes;
-using PubSoft.NexusContract.Abstractions.Configuration;
 using PubSoft.NexusContract.Abstractions.Contracts;
 using PubSoft.NexusContract.Abstractions.Exceptions;
 using PubSoft.NexusContract.Abstractions.Policies;
@@ -21,27 +17,21 @@ using PubSoft.NexusContract.Core.Reflection;
 namespace PubSoft.NexusContract.Core
 {
     /// <summary>
-    /// 执行上下文：仅包含必备的操作元数据
+    /// 执行上下文：包含操作元数据
     /// </summary>
-    public sealed class ExecutionContext
-    {
-        /// <summary>
-        /// 操作标识（从 [ApiOperation] 属性提取）
-        /// 用于三方 API 选择证书、签名算法等动态参数
-        /// </summary>
-        public string? OperationId { get; init; }
-
-        public ExecutionContext(string? operationId = null)
-        {
-            OperationId = operationId;
-        }
-    }
+    /// <param name="OperationId">操作标识（从 [ApiOperation] 属性提取），用于三方 API 选择证书、签名算法等动态参数</param>
+    public sealed record ExecutionContext(string? OperationId = null);
 
     /// <summary>
     /// 【决策 A-501】NexusGateway（支付网关唯一门面）
     /// 
     /// 职责：自动编排出入链路（出向投影 + 回向回填）。
     /// 工作流：验证 → 投影 → async 执行 → 回填 → 异常转译。
+    /// 
+    /// 设计原则：
+    /// - 每个微服务对接一个支付平台（遵循微服务单一职责）
+    /// - Provider 层封装平台特定逻辑（签名、命名策略、加密）
+    /// - Gateway 提供通用引擎（投影、回填、验证）
     /// 
     /// 纯异步设计（无同步版本）的理由：
     /// - 避免线程池耗尽（高延迟场景：若 2s 平均响应 × 400 TPS，同步需 800 线程）
@@ -65,7 +55,6 @@ namespace PubSoft.NexusContract.Core
     /// </summary>
     public sealed class NexusGateway
     {
-        private readonly INamingPolicy _namingPolicy;
         private readonly ProjectionEngine _projectionEngine;
         private readonly ResponseHydrationEngine _hydrationEngine;
 
@@ -80,13 +69,11 @@ namespace PubSoft.NexusContract.Core
             IEncryptor? encryptor = null,
             IDecryptor? decryptor = null)
         {
-            _namingPolicy = namingPolicy ?? throw new ArgumentNullException(nameof(namingPolicy));
+            if (namingPolicy == null)
+                throw new ArgumentNullException(nameof(namingPolicy));
 
-            // 初始化投影引擎
-            _projectionEngine = new ProjectionEngine(_namingPolicy, encryptor);
-
-            // 初始化回填引擎
-            _hydrationEngine = new ResponseHydrationEngine(_namingPolicy, decryptor);
+            _projectionEngine = new ProjectionEngine(namingPolicy, encryptor);
+            _hydrationEngine = new ResponseHydrationEngine(namingPolicy, decryptor);
         }
 
         /// <summary>
@@ -108,20 +95,21 @@ namespace PubSoft.NexusContract.Core
 
             try
             {
-                var requestType = request.GetType();
+                Type requestType = request.GetType();
 
                 // 1. 验证契约（缓存后零开销）
-                var metadata = ReflectionCache.Instance.GetMetadata(requestType);
+                ContractMetadata metadata = NexusContractMetadataRegistry.Instance.GetMetadata(requestType);
+                string? operationId = metadata.Operation?.Operation;
 
                 // 2. 投影请求
-                var projectedRequest = _projectionEngine.Project<object>(request);
+                IDictionary<string, object> projectedRequest = _projectionEngine.Project<object>(request);
 
                 // 3. 异步执行（线程于此释放回线程池）
-                var executionContext = new ExecutionContext(metadata.Operation?.Operation);
-                var responseDict = await executorAsync(executionContext, projectedRequest).ConfigureAwait(false);
+                ExecutionContext executionContext = new ExecutionContext(operationId);
+                IDictionary<string, object> responseDict = await executorAsync(executionContext, projectedRequest).ConfigureAwait(false);
 
                 // 4. 回填响应
-                var response = _hydrationEngine.Hydrate<TResponse>(responseDict);
+                TResponse response = _hydrationEngine.Hydrate<TResponse>(responseDict);
 
                 return response;
             }
@@ -153,7 +141,7 @@ namespace PubSoft.NexusContract.Core
 
             try
             {
-                ReflectionCache.Instance.GetMetadata(typeof(TContract));
+                NexusContractMetadataRegistry.Instance.GetMetadata(typeof(TContract));
                 return _projectionEngine.Project<TContract>(contract);
             }
             catch (ContractIncompleteException ex)
@@ -186,11 +174,11 @@ namespace PubSoft.NexusContract.Core
         /// <summary>
         /// 诊断异常输出（用于日志系统集成）
         /// </summary>
-        private void ThrowDiagnosticException(ContractIncompleteException ex)
+        private static void ThrowDiagnosticException(ContractIncompleteException ex)
         {
-            var diagnosticData = ex.GetDiagnosticData();
-            var category = ContractDiagnosticRegistry.GetCategory(ex.ErrorCode);
-            var severity = ContractDiagnosticRegistry.GetSeverity(ex.ErrorCode);
+            IDictionary<string, object> diagnosticData = ex.GetDiagnosticData();
+            string category = ContractDiagnosticRegistry.GetCategory(ex.ErrorCode);
+            string severity = ContractDiagnosticRegistry.GetSeverity(ex.ErrorCode);
 
             // 这里可以接入日志系统
             // logger.LogError(new Dictionary<string, object>

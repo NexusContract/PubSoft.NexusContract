@@ -61,7 +61,7 @@ namespace PubSoft.NexusContract.Client
             {
                 // 1. 提取 [ApiOperation] 元数据
                 var requestType = request.GetType();
-                var metadata = ReflectionCache.Instance.GetMetadata(requestType);
+                var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(requestType);
                 var operation = metadata.Operation
                     ?? throw new InvalidOperationException($"[{requestType.Name}] missing [ApiOperation] attribute");
 
