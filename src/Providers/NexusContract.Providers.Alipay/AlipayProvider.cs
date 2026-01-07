@@ -72,12 +72,13 @@ namespace PubSoft.NexusContract.Providers.Alipay
     ///   ↓
     /// HttpExecutor（实际HTTP+签名）→ 支付宝 OpenAPI v3
     /// </summary>
-    public class AlipayProvider : IAsyncDisposable
+    public class AlipayProvider : IAsyncDisposable, IDisposable
     {
         private readonly AlipayProviderConfig _config;
         private readonly NexusGateway _gateway;
         private readonly HttpClient _httpClient;
         private readonly INamingPolicy _namingPolicy;
+        private bool _disposed;
 
         /// <summary>
         /// 初始化支付宝提供商
@@ -283,8 +284,23 @@ namespace PubSoft.NexusContract.Providers.Alipay
         /// </summary>
         public async ValueTask DisposeAsync()
         {
+            if (_disposed) return;
+
             _httpClient?.Dispose();
+            _disposed = true;
+
             await Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 释放资源（同步）
+        /// </summary>
+        public void Dispose()
+        {
+            if (_disposed) return;
+
+            _httpClient?.Dispose();
+            _disposed = true;
         }
     }
 }
