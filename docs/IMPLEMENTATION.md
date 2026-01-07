@@ -41,27 +41,28 @@
 ### 1. NexusContractMetadataRegistry（契约元数据注册表）
 
 **工程逻辑**：
-- **NexusContractMetadataRegistry**：启动时，对每个 Contract 进行反射一次，提取 Attribute 元数据并缓存（ConcurrentDictionary）。首次 O(n)，后续 O(1)。
-- 将全量元数据冻结为高效缓存，让 400 TPS 的高频查询完全零损耗。
+- **元数据冷冻**: 启动时，对每个 Contract 进行反射一次，提取 Attribute 元数据并缓存（`ConcurrentDictionary`）。首次访问 O(n)，后续 O(1)。
+- **启动期体检 (`Preload`)**: 提供 `Preload` 方法，调用 `ContractValidator` 的诊断模式对所有契约进行全景扫描，并返回一份结构化的 `DiagnosticReport`。
+- **懒加载 (`GetMetadata`)**: 在运行时首次访问某个契约时，调用 `ContractValidator` 的执法模式（Fail-Fast）进行验证，然后缓存元数据。
 
 **手感**：为什么要这样做？
 ```
 方案 A（Alipay 模式）：每个请求来时反射属性 → O(n) 反射成本 × 高并发 = GC 压力 + 性能衰减
-方案 B（我们的做法）：启动一次反射 → 后续 O(1) 缓存查询 → P50 = P99 无波动
+方案 B（我们的做法）：启动一次反射 + 全量体检 → 后续 O(1) 缓存查询 → P50 = P99 无波动
 ```
 
 参考：[src/NexusContract.Core/Reflection/NexusContractMetadataRegistry.cs](../../src/NexusContract.Core/Reflection/NexusContractMetadataRegistry.cs)
 
 ---
 
-### 2. ContractValidator + ContractAuditor + PropertyAuditResult（三重审计）
+### 2. ContractValidator（双模宪法执法官）
 
 **工程逻辑**：
-- **ContractValidator**：Fail-Fast 执法，检查 NXC1xx（静态结构）和 NXC104-105（递归深度/循环）。
-- **ContractAuditor**：逐字段审计，检查加密字段的命名约束（NXC106）、嵌套对象的显式路径锁定（NXC107）。
-- **PropertyAuditResult**：缓存审计结果，避免运行时重复检查。
+- **双重模式**: `ContractValidator` 现在以两种模式运行，以平衡启动期全面性与运行期效率。
+  - **诊断模式 (`Validate`)**: 在启动期 `Preload` 期间调用。它会**无损扫描**整个契约对象树，收集所有违规行为并记录到 `DiagnosticReport` 中，而**不抛出异常**。
+  - **执法模式 (`ValidateFailFast`)**: 在运行时懒加载 (`GetMetadata`) 期间调用。它继承了原始的 **Fail-Fast** 行为，遇到第一个违规立即抛出 `ContractIncompleteException`，确保运行期安全。
 
-**手感**：这不是"代码检查"，而是"宪法执法"。任何违反 NXC1xx-3xx 的契约都在启动时被卡死。
+**手感**：这不是单一的“代码检查”，而是“体检医生 + 现场执法官”的结合体。启动时给你一份完整的体检报告，运行时对任何意外的动态加载执行严格的现场执法。
 
 参考：[ContractValidator.cs](../../src/NexusContract.Core/Reflection/ContractValidator.cs)
 
@@ -168,100 +169,154 @@ Naming Policy 有三种内置实现：
 
 这是最重要的部分：**怎么把这套机制组装到 Provider 里**。
 
-### 全流程示例：银联支付请求
+### 全流程示例：支付宝当面付
+
+我们将以 `Demo.Alipay.HttpApi` 为例，展示如何将 `AlipayProvider` 集成到 `FastEndpoints` 中，实现一个零代码的业务端点。
+
+#### 步骤 1：定义契约 (Contract)
+
+契约是所有逻辑的起点。它定义了请求、响应以及与三方 API 的映射关系。
 
 ```csharp
-// 1. 定义契约类（基于实际 contracts/PubSoft.UnionPay.Contract）
-[ApiOperation("unionpay.trade.pay", HttpVerb.POST, Version = "5.1.0")]
-public class PaymentRequest : IApiRequest<PaymentResponse>
-{
-    [ApiField(IsRequired = true, Description = "商户系统订单号，必须唯一")]
-    public string MerchantOrderId { get; set; }
-    
-    [ApiField("txn_amt", IsRequired = true, Description = "交易金额，单位：分")]
-    public long Amount { get; set; }
-    
-    [ApiField("card_no", IsEncrypted = true, IsRequired = true, Description = "支付银行卡号")]
-    public string CardNumber { get; set; }
-    
-    [ApiField("goods_desc", Description = "商品或订单描述")]
-    public string GoodsDescription { get; set; }
-}
+// 文件: examples/Demo.Alipay.Contract/Transactions/TradePayRequest.cs
 
-// 2. 创建 Provider，配置 Gateway
-public class UnionPayProvider : AlipayProvider  // 继承基础Provider
+[ApiOperation("alipay.trade.pay", HttpVerb.POST)]
+public class TradePayRequest : IApiRequest<TradePayResponse>
 {
-    public UnionPayProvider(AlipayProviderConfig config, NexusGateway gateway) 
-        : base(config, gateway) { }
-    
-    // 3. 执行请求（实际实现HTTP调用）
-    public async Task<PaymentResponse> PayAsync(PaymentRequest request)
+    [ApiField("out_trade_no", IsRequired = true)]
+    public string MerchantOrderNo { get; set; }
+
+    [ApiField("total_amount", IsRequired = true)]
+    public decimal TotalAmount { get; set; }
+
+    [ApiField("subject", IsRequired = true)]
+    public string Subject { get; set; }
+
+    [ApiField("scene", IsRequired = true)]
+    public string Scene { get; set; }
+}
+```
+- `[ApiOperation]` 定义了此契约对应的支付宝接口 (`alipay.trade.pay`) 和 HTTP 动词。
+- `IApiRequest<TradePayResponse>` 在编译期锁定了响应类型。
+- `[ApiField]` 将我们的业务属性 (`MerchantOrderNo`) 精确映射到支付宝的协议字段 (`out_trade_no`)。
+
+#### 步骤 2：创建 Provider 并定义 HTTP 执行器
+
+`AlipayProvider` 封装了与支付宝交互的所有细节，如签名、验签和网络通信。其核心是 `ExecuteAsync` 方法，该方法内部定义了一个 `HttpExecutor` 委托，并将其传递给 `NexusGateway`。
+
+```csharp
+// 文件: src/Providers/NexusContract.Providers.Alipay/AlipayProvider.cs
+
+public class AlipayProvider : IAsyncDisposable, IDisposable
+{
+    // ... 构造函数和配置 ...
+
+    public async Task<TResponse> ExecuteAsync<TResponse>(
+        IApiRequest<TResponse> request, CancellationToken ct)
+        where TResponse : class, new()
     {
-        // 定义HTTP执行器（实际网络调用）
+        // 定义 HTTP 执行器：处理实际的网络通信、签名、验证
         async Task<IDictionary<string, object>> HttpExecutor(
-            CoreExecutionContext context, 
+            CoreExecutionContext context,
             IDictionary<string, object> projectedRequest)
         {
-            // 这里实现实际的HTTP调用、签名、加密等
-            // 使用 projectedRequest 中的字段发送到银联API
-            // 返回解析后的响应字典
-            
-            // 示例（伪代码）：
-            using var httpClient = new HttpClient();
-            var response = await httpClient.PostAsJsonAsync("https://api.unionpay.com/pay", projectedRequest);
-            return await response.Content.ReadFromJsonAsync<IDictionary<string, object>>();
+            // 1. 构建 OpenAPI v3 URL (e.g., /v3/alipay/trade/pay)
+            Uri requestUri = BuildOpenApiV3Uri(context.OperationId);
+
+            // 2. 准备认证参数并生成签名
+            string signature = GenerateSignature(...);
+
+            // 3. 构建并发送 HTTP 请求
+            using HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, requestUri);
+            // ... 设置请求头和内容 ...
+            HttpResponseMessage httpResponse = await _httpClient.SendAsync(httpRequest, ct);
+
+            // 4. 解析并验证响应签名
+            string responseContent = await httpResponse.Content.ReadAsStringAsync(ct);
+            IDictionary<string, object> responseDict = ParseAlipayResponse(responseContent);
+            if (!VerifyResponseSignature(responseDict))
+                throw new InvalidOperationException("验签失败");
+
+            return responseDict;
         }
-        
-        // Gateway 会自动执行四阶段管道：
-        // 1️⃣ 验证：ContractValidator 检查 NXC1xx-3xx
-        // 2️⃣ 投影：ProjectionEngine 将 request 转为 Dictionary
-        // 3️⃣ 执行：调用 HttpExecutor，发送签名后的请求
-        // 4️⃣ 回填：ResponseHydrationEngine 将 response 转为强类型
-        return await ExecuteAsync(request, HttpExecutor);
+
+        // 委托给 Gateway 执行四阶段管道
+        return await _gateway.ExecuteAsync(request, HttpExecutor, ct);
     }
 }
+```
+- `HttpExecutor` 是**唯一**需要关心平台协议细节（签名、URL 格式等）的地方。
+- `NexusGateway` 负责调用 `HttpExecutor`，并在此之前和之后执行“验证”、“投影”和“回填”阶段。
 
-// 4. FastEndpoints 集成（框架特定）
-public abstract class UnionPayEndpointBase<TRequest> : Endpoint<TRequest>
-    where TRequest : class, IApiRequest
+#### 步骤 3：FastEndpoints 集成与零代码端点
+
+在 `Demo.Alipay.HttpApi` 中，我们通过一个基类 `AlipayEndpointBase` 来自动化所有端点的通用逻辑。
+
+```csharp
+// 文件: examples/Demo.Alipay.HttpApi/Endpoints/AlipayEndpointBase.cs
+
+public abstract class AlipayEndpointBase<TRequest>(AlipayProvider alipayProvider) 
+    : Endpoint<TRequest> where TRequest : class, IApiRequest
 {
-    private readonly UnionPayProvider _provider;
-    
-    protected UnionPayEndpointBase(UnionPayProvider provider)
-    {
-        _provider = provider;
-    }
-    
     public override void Configure()
     {
-        // 从 [ApiOperation] 提取路由
+        // 从契约的 [ApiOperation] 自动提取并配置路由
         var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(typeof(TRequest));
-        Post(ConvertToRoute(metadata.Operation.Operation));
+        string route = metadata.Operation.Operation.Replace("alipay.", "").Replace('.', '/');
+        Post(route); // e.g., "alipay.trade.pay" -> "trade/pay"
     }
-    
+
     public override async Task HandleAsync(TRequest req, CancellationToken ct)
     {
-        // 调用 Provider
-        var response = await _provider.ExecuteAsync(req, ct);
+        // 直接调用 Provider 执行请求
+        var response = await alipayProvider.ExecuteAsync(req, ct);
         await SendAsync(response, cancellation: ct);
     }
 }
+```
+- `Configure()` 方法利用 `NexusContractMetadataRegistry` 读取契约元数据，自动将 `alipay.trade.pay` 转换为 RESTful 路由 `trade/pay`。
+- `HandleAsync()` 简单地将请求转发给 `AlipayProvider`。
 
-// 5. 具体 Endpoint（零代码）
-public class PaymentEndpoint : UnionPayEndpointBase<PaymentRequest>
+有了这个基类，我们的业务端点就实现了**真正的零代码**：
+
+```csharp
+// 文件: examples/Demo.Alipay.HttpApi/Endpoints/TradePayEndpoint.cs
+
+public class TradePayEndpoint(AlipayProvider alipayProvider) 
+    : AlipayEndpointBase<TradePayRequest>(alipayProvider)
 {
-    public PaymentEndpoint(UnionPayProvider provider) : base(provider) { }
-}
-{
-    // 路由配置在Provider层面实现，不需要每个Endpoint重复定义
-    // Provider会根据[ApiOperation]自动映射路由
+    // 无需任何代码！
+    // 路由、请求处理、响应全部由基类和 NexusGateway 自动完成。
 }
 ```
 
+#### 步骤 4：在 `Program.cs` 中注册服务
+
+最后，在应用程序的入口点注册所有服务。
+
+```csharp
+// 文件: examples/Demo.Alipay.HttpApi/Program.cs
+
+var builder = WebApplication.CreateBuilder(args);
+
+// 注册支付宝 Provider 和相关服务
+builder.Services.AddAlipayProvider(new AlipayProviderConfig { ... });
+
+// 注册 FastEndpoints
+builder.Services.AddFastEndpoints();
+
+var app = builder.Build();
+
+// 配置 FastEndpoints 中间件和路由前缀
+app.UseFastEndpoints(c => c.Endpoints.RoutePrefix = "v3/alipay");
+
+app.Run();
+```
+
 **集成关键点**：
-- ✅ 契约类定义一次，后续所有逻辑都通过 Gateway 自动化
-- ✅ Provider 只需要提供"HTTP 执行器"（签名、加密、网络调用）
-- ✅ Endpoint 零代码，完全是代理模式
+- ✅ **单一事实来源**: `TradePayRequest` 契约是唯一需要定义业务逻辑和协议映射的地方。
+- ✅ **职责分离**: `AlipayProvider` 关心支付宝，`AlipayEndpointBase` 关心 FastEndpoints，`NexusGateway` 关心执行流程。它们各司其职。
+- ✅ **零代码端点**: 业务开发人员只需定义契约，无需编写任何端点代码，极大地提高了开发效率和一致性。
 
 ---
 
