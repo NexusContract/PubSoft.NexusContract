@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<coreProperties xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://schemas.openxmlformats.org/package/2006/metadata/core-properties">
-  <dc:creator>NexusContract</dc:creator>
-  <dc:description>Pure abstractions for building payment gateway integrations using Kernelized Contract Integration (KCI) pattern. Includes IApiRequest&lt;T&gt;, ApiOperation, ApiField attributes, and structured diagnostic codes (NXC1xx-3xx). Zero runtime dependencies, netstandard2.0 compatible.</dc:description>
-  <dc:identifier>NexusContract.Abstractions</dc:identifier>
-  <version>1.0.0-preview.1</version>
-  <keywords>payment gateway kci contract metadata-driven high-performance net10 alipay unionpay wechatpay fastendpoints repr repr-p architecture abstractions attributes kci-pattern payment-gateway netstandard</keywords>
-  <lastModifiedBy>NuGet.Packaging, Version=7.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35;.NET 8.0</lastModifiedBy>
-</coreProperties>
