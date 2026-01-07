@@ -20,6 +20,10 @@ namespace PubSoft.NexusContract.Core.Reflection
     /// "最高法院"角色：在系统启动（冷冻元数据）时，像"X光"一样扫描每一个契约类，
     /// 任何违反边界的行为都会被瞬间卡死。它不负责业务逻辑，唯一职责是守护"没有魔法，只有边界"的共识。
     /// 
+    /// 双重模式：
+    /// - Validate() (执法官模式): 遇到第一个违宪行为立即抛出 ContractIncompleteException，用于运行时 Fail-Fast。
+    /// - ValidateWithReport() (体检医生模式): 扫描所有违宪行为并生成一份完整的诊断报告，用于启动期 Preload。
+    /// 
     /// 验证规则（1xx 静态结构）：
     /// 1. NXC101: 类必须标记 [ApiOperation]，Operation 不能为空
     /// 2. NXC102: Operation 标识不能为空
@@ -42,7 +46,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             if (contractType == null)
                 throw new ArgumentNullException(nameof(contractType));
 
-            var contractName = contractType.FullName ?? contractType.Name ?? "Unknown";
+            string contractName = contractType.FullName ?? contractType.Name ?? "Unknown";
 
             // NXC101: 验证 Operation 意图声明
             var opAttr = contractType.GetCustomAttribute<ApiOperationAttribute>();
@@ -76,7 +80,77 @@ namespace PubSoft.NexusContract.Core.Reflection
         }
 
         /// <summary>
-        /// 递归验证字段和深度约束
+        /// 【决策 A-307】无损扫描模式：收集所有错误而不抛异常
+        /// 
+        /// 设计理念：
+        /// Validate() 是"执法官"，遇到违宪立即逮捕（抛异常）。
+        /// ValidateWithReport() 是"体检医生"，扫描完整个身体后才给出报告。
+        /// 
+        /// 使用场景：
+        /// - Preload 启动期批量扫描：一次性发现所有契约的结构性问题
+        /// - CI/CD 质量门禁：在构建管道中输出完整的诊断报告
+        /// 
+        /// 实现策略：
+        /// 1. 将所有 throw 替换为 diagnostics.Add()
+        /// 2. 即使某一步失败，仍继续后续检查
+        /// 3. 兄弟节点独立检查（属性 A 失败不影响属性 B）
+        /// </summary>
+        public static List<ContractDiagnostic> ValidateWithReport(Type contractType)
+        {
+            if (contractType == null)
+                throw new ArgumentNullException(nameof(contractType));
+
+            var diagnostics = new List<ContractDiagnostic>();
+            string contractName = contractType.FullName ?? contractType.Name ?? "Unknown";
+
+            // NXC101: 验证 Operation 意图声明
+            var opAttr = contractType.GetCustomAttribute<ApiOperationAttribute>();
+            if (opAttr == null)
+            {
+                diagnostics.Add(ContractDiagnostic.Create(
+                    contractName,
+                    ContractDiagnosticRegistry.NXC101,
+                    propertyName: null,
+                    propertyPath: null,
+                    contractType.Name ?? "Unknown"
+                ));
+                // Critical: stop further checks for this type
+                return diagnostics;
+            }
+
+            // NXC102
+            if (string.IsNullOrWhiteSpace(opAttr.Operation))
+            {
+                diagnostics.Add(ContractDiagnostic.Create(
+                    contractName,
+                    ContractDiagnosticRegistry.NXC102,
+                    propertyName: null,
+                    propertyPath: null,
+                    contractType.Name ?? "Unknown"
+                ));
+            }
+
+            // NXC103
+            var responseType = GetResponseType(contractType);
+            if (opAttr.Interaction == InteractionKind.OneWay && responseType != typeof(EmptyResponse))
+            {
+                diagnostics.Add(ContractDiagnostic.Create(
+                    contractName,
+                    ContractDiagnosticRegistry.NXC103,
+                    propertyName: null,
+                    propertyPath: null,
+                    opAttr.Operation,
+                    responseType?.Name ?? "null"
+                ));
+            }
+
+            ValidateFieldsRecursiveWithReport(contractType, 1, new HashSet<Type>(), "", diagnostics);
+
+            return diagnostics;
+        }
+
+        /// <summary>
+        /// 递归验证字段和深度约束（Fail-Fast 版本）
         /// </summary>
         private static void ValidateFieldsRecursive(
             Type type,
@@ -84,12 +158,12 @@ namespace PubSoft.NexusContract.Core.Reflection
             HashSet<Type> visited,
             string path)
         {
-            var typeName = type.FullName ?? type.Name ?? "Unknown";
+            string typeName = type.FullName ?? type.Name ?? "Unknown";
 
             // NXC104: 深度红线校验
             if (currentDepth > MaxDepth)
             {
-                var pathInfo = !string.IsNullOrEmpty(path) ? path : type.Name ?? "Unknown";
+                string pathInfo = !string.IsNullOrEmpty(path) ? path : type.Name ?? "Unknown";
                 throw new ContractIncompleteException(
                     typeName,
                     ContractDiagnosticRegistry.NXC104,
@@ -102,7 +176,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             // NXC105: 循环引用检测
             if (visited.Contains(type))
             {
-                var pathInfo = !string.IsNullOrEmpty(path) ? path : type.Name ?? "Unknown";
+                string pathInfo = !string.IsNullOrEmpty(path) ? path : type.Name ?? "Unknown";
                 throw new ContractIncompleteException(
                     typeName,
                     ContractDiagnosticRegistry.NXC105,
@@ -113,9 +187,7 @@ namespace PubSoft.NexusContract.Core.Reflection
 
             visited.Add(type);
 
-            // 获取所有 [ApiField] 标注的属性
             var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-            
             foreach (var prop in properties)
             {
                 var fieldAttr = prop.GetCustomAttribute<ApiFieldAttribute>();
@@ -130,15 +202,14 @@ namespace PubSoft.NexusContract.Core.Reflection
                         prop.Name ?? "Unknown"
                     );
 
-                // 处理递归探测
                 Type propType = GetEffectiveType(prop.PropertyType);
 
-                // 7. 跳过基元类型和字符串
+                // 跳过基元类型和字符串
                 if (propType.IsPrimitive || propType == typeof(string))
                     continue;
 
-                // 8. 跳过 IDictionary（直接透传）
-                if (typeof(IDictionary).IsAssignableFrom(propType))
+                // 跳过 IDictionary（直接透传）
+                if (typeof(System.Collections.IDictionary).IsAssignableFrom(propType))
                     continue;
 
                 // NXC107: 复杂对象或列表检查：嵌套深度 > 1 时，必须显式锁定 Name
@@ -153,15 +224,105 @@ namespace PubSoft.NexusContract.Core.Reflection
                             currentDepth
                         );
 
-                    // 递归验证（创建独立的访问集合，避免兄弟节点污染）
                     var childVisited = new HashSet<Type>(visited);
-                    var childPath = !string.IsNullOrEmpty(path) 
-                        ? $"{path} → {prop.Name}" 
-                        : $"{(type.Name ?? "Unknown")}.{prop.Name ?? "Unknown"}";
+                    string childPath = !string.IsNullOrEmpty(path)
+                            ? $"{path} → {prop.Name}"
+                            : $"{(type.Name ?? "Unknown")}.{prop.Name ?? "Unknown"}";
                     ValidateFieldsRecursive(propType, currentDepth + 1, childVisited, childPath);
                 }
             }
         }
+
+        private static void ValidateFieldsRecursiveWithReport(
+            Type type,
+            int currentDepth,
+            HashSet<Type> visited,
+            string path,
+            List<ContractDiagnostic> diagnostics)
+        {
+            string typeName = type.FullName ?? type.Name ?? "Unknown";
+
+            if (currentDepth > MaxDepth)
+            {
+                string pathInfo = !string.IsNullOrEmpty(path) ? path : type.Name ?? "Unknown";
+                diagnostics.Add(ContractDiagnostic.Create(
+                    typeName,
+                    ContractDiagnosticRegistry.NXC104,
+                    propertyName: null,
+                    propertyPath: pathInfo,
+                    MaxDepth,
+                    pathInfo,
+                    type.Name ?? "Unknown"
+                ));
+                return;
+            }
+
+            if (visited.Contains(type))
+            {
+                string pathInfo = !string.IsNullOrEmpty(path) ? path : type.Name ?? "Unknown";
+                diagnostics.Add(ContractDiagnostic.Create(
+                    typeName,
+                    ContractDiagnosticRegistry.NXC105,
+                    propertyName: null,
+                    propertyPath: pathInfo,
+                    pathInfo,
+                    type.Name ?? "Unknown"
+                ));
+                return;
+            }
+
+            visited.Add(type);
+
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var prop in properties)
+            {
+                var fieldAttr = prop.GetCustomAttribute<ApiFieldAttribute>();
+                if (fieldAttr == null) continue;
+
+                if (fieldAttr.IsEncrypted && string.IsNullOrEmpty(fieldAttr.Name))
+                {
+                    diagnostics.Add(ContractDiagnostic.Create(
+                        typeName,
+                        ContractDiagnosticRegistry.NXC106,
+                        propertyName: prop.Name,
+                        propertyPath: !string.IsNullOrEmpty(path) ? $"{path}.{prop.Name}" : prop.Name,
+                        type.Name ?? "Unknown",
+                        prop.Name ?? "Unknown"
+                    ));
+                }
+
+                Type propType = GetEffectiveType(prop.PropertyType);
+                if (propType.IsPrimitive || propType == typeof(string))
+                    continue;
+                if (typeof(System.Collections.IDictionary).IsAssignableFrom(propType))
+                    continue;
+
+                if (TypeUtilities.IsComplexType(propType))
+                {
+                    if (currentDepth > 1 && string.IsNullOrEmpty(fieldAttr.Name))
+                    {
+                        diagnostics.Add(ContractDiagnostic.Create(
+                            typeName,
+                            ContractDiagnosticRegistry.NXC107,
+                            propertyName: prop.Name,
+                            propertyPath: !string.IsNullOrEmpty(path) ? $"{path}.{prop.Name}" : prop.Name,
+                            type.Name ?? "Unknown",
+                            prop.Name ?? "Unknown",
+                            currentDepth
+                        ));
+                    }
+
+                    var childVisited = new HashSet<Type>(visited);
+                    string childPath = !string.IsNullOrEmpty(path)
+                        ? $"{path} → {prop.Name}"
+                        : $"{(type.Name ?? "Unknown")}.{prop.Name ?? "Unknown"}";
+
+                    ValidateFieldsRecursiveWithReport(propType, currentDepth + 1, childVisited, childPath, diagnostics);
+                }
+            }
+        }
+
+        // ValidateFieldsRecursiveWithReport is implemented above; duplicate removed.
 
         /// <summary>
         /// 获取有效的类型（处理 List{T} 等泛型）

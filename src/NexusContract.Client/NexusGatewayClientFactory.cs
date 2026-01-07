@@ -44,7 +44,7 @@ namespace PubSoft.NexusContract.Client
                 throw new ArgumentNullException(nameof(httpClient));
 
             // 点分标识符解析（如 "allinpay.yunst" → "allinpay"）
-            var providerKey = operationKey.Split('.')[0];
+            string providerKey = operationKey.Split('.')[0];
 
             if (!gatewayMap.TryGetValue(providerKey, out var gatewayUri))
             {

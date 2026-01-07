@@ -26,19 +26,13 @@ namespace PubSoft.NexusContract.Core.Projection
     /// 深度限制 3 的理由：Alipay/WeChat/UnionPay 标准接口最深 3 层。
     /// 超过 3 层通常表示架构设计问题，防止 AI 自主设计过深结构。
     /// </summary>
-    public sealed class ProjectionEngine
+    public sealed class ProjectionEngine(INamingPolicy namingPolicy, IEncryptor? encryptor = null)
     {
-        private readonly INamingPolicy _namingPolicy;
-        private readonly IEncryptor? _encryptor;
-        
+        private readonly INamingPolicy _namingPolicy = namingPolicy ?? throw new ArgumentNullException(nameof(namingPolicy));
+        private readonly IEncryptor? _encryptor = encryptor;
+
         // 从全局边界配置引用（单一来源）
         private static readonly int MaxRecursionDepth = ContractBoundaries.MaxNestingDepth;
-
-        public ProjectionEngine(INamingPolicy namingPolicy, IEncryptor? encryptor = null)
-        {
-            _namingPolicy = namingPolicy ?? throw new ArgumentNullException(nameof(namingPolicy));
-            _encryptor = encryptor;
-        }
 
         /// <summary>
         /// 将 Contract 投影为 Protocol Representation (Dictionary)
@@ -75,7 +69,7 @@ namespace PubSoft.NexusContract.Core.Projection
             // 防御性检查：深度限制（Fail-Safe）
             if (depth > MaxRecursionDepth)
             {
-                var typeName = contract.GetType().FullName ?? contract.GetType().Name ?? "Unknown";
+                string typeName = contract.GetType().FullName ?? contract.GetType().Name ?? "Unknown";
                 throw new ContractIncompleteException(
                     typeName,
                     ContractDiagnosticRegistry.NXC203,
@@ -84,13 +78,13 @@ namespace PubSoft.NexusContract.Core.Projection
             }
 
             var contractType = contract.GetType();
-            var contractTypeName = contractType.FullName ?? contractType.Name ?? "Unknown";
+            string contractTypeName = contractType.FullName ?? contractType.Name ?? "Unknown";
             var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(contractType);
             var result = new Dictionary<string, object>();
 
             foreach (var pm in metadata.Properties)
             {
-                var propertyValue = pm.PropertyInfo.GetValue(contract);
+                object? propertyValue = pm.PropertyInfo.GetValue(contract);
 
                 // 跳过 null 值
                 if (propertyValue == null)
@@ -116,19 +110,19 @@ namespace PubSoft.NexusContract.Core.Projection
                 {
                     // 字符串：可能需要加密
                     string s => pm.ApiField.IsEncrypted ? EncryptValue(s) : s,
-                    
+
                     // IDictionary：按原样返回（或递归处理）
                     IDictionary dict => dict,
-                    
+
                     // List<T>：递归投影集合
                     IList list => ProjectCollection(list, pm.ApiField.IsEncrypted, depth),
-                    
+
                     // 基础值类型
                     ValueType v => v,
-                    
+
                     // 复杂对象：递归投影
                     object o => ProjectInternal(o, depth + 1),
-                    
+
                     _ => propertyValue
                 };
 
@@ -146,7 +140,7 @@ namespace PubSoft.NexusContract.Core.Projection
         {
             var result = new List<object>();
 
-            foreach (var item in list)
+            foreach (object? item in list)
             {
                 if (item == null)
                     continue;
@@ -155,13 +149,13 @@ namespace PubSoft.NexusContract.Core.Projection
                 {
                     // 列表中的字符串
                     string s => isEncrypted ? EncryptValue(s) : s,
-                    
+
                     // 列表中的基础类型
                     ValueType v => v,
-                    
+
                     // 列表中的复杂对象（递归，深度继续递增）
                     object o => ProjectInternal(o, depth + 1),
-                    
+
                     _ => item
                 };
 

@@ -228,7 +228,7 @@ namespace PubSoft.NexusContract.Providers.Alipay
         {
             try
             {
-                if (!response.TryGetValue("sign", out var signObj) || signObj is not string signature)
+                if (!response.TryGetValue("sign", out object? signObj) || signObj is not string signature)
                     return false;
 
                 // 这里简化处理，实际应该验证响应签名

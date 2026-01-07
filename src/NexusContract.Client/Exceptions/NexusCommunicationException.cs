@@ -60,7 +60,7 @@ namespace PubSoft.NexusContract.Client.Exceptions
             if (contractEx == null)
                 throw new ArgumentNullException(nameof(contractEx));
 
-            var category = ContractDiagnosticRegistry.GetCategory(contractEx.ErrorCode);
+            string category = ContractDiagnosticRegistry.GetCategory(contractEx.ErrorCode);
             var diagnosticData = contractEx.GetDiagnosticData();
 
             return new NexusCommunicationException(
@@ -99,7 +99,7 @@ namespace PubSoft.NexusContract.Client.Exceptions
             Dictionary<string, object>? diagnosticData = null,
             Exception? innerException = null)
         {
-            var category = !string.IsNullOrWhiteSpace(errorCode)
+            string category = !string.IsNullOrWhiteSpace(errorCode)
                 ? ContractDiagnosticRegistry.GetCategory(errorCode)
                 : "NetworkError";
 
@@ -146,7 +146,7 @@ namespace PubSoft.NexusContract.Client.Exceptions
 
             if (DiagnosticData?.Count > 0)
             {
-                var dataStr = string.Join(", ",
+                string dataStr = string.Join(", ",
                     DiagnosticData.Where(kv => true).Select(kv => $"{kv.Key}={kv.Value}"));
                 parts.Add($"Data: {{{dataStr}}}");
             }
@@ -156,7 +156,7 @@ namespace PubSoft.NexusContract.Client.Exceptions
 
         public override string ToString()
         {
-            var summary = GetDiagnosticSummary();
+            string summary = GetDiagnosticSummary();
             return $"{base.ToString()}\n{summary}";
         }
     }

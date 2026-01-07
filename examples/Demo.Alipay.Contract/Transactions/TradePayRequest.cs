@@ -6,7 +6,7 @@ using PubSoft.NexusContract.Abstractions.Contracts;
 
 namespace Demo.Alipay.Contract.Transactions
 {
-    #nullable disable
+#nullable disable
     /// <summary>
     /// 支付宝统一收单交易支付接口请求
     /// 文档: https://opendocs.alipay.com/open/02ijkv

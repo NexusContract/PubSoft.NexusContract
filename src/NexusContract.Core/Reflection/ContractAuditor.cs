@@ -44,13 +44,13 @@ namespace PubSoft.NexusContract.Core.Reflection
 
             // 【规则 R-201】检查：加密字段必须显式命名
             // 结论缓存为 IsEncryptedWithoutName
-            bool isEncryptedWithoutName = apiFieldAttribute.IsEncrypted && 
+            bool isEncryptedWithoutName = apiFieldAttribute.IsEncrypted &&
                                           string.IsNullOrWhiteSpace(apiFieldAttribute.Name);
 
             // 【规则 R-207】检查：嵌套深度 > MaxDepth 的复杂字段必须显式命名
             // 结论缓存为 IsComplexWithoutName
-            bool isComplexWithoutName = isComplexType && 
-                                        currentDepth > MaxDepth && 
+            bool isComplexWithoutName = isComplexType &&
+                                        currentDepth > MaxDepth &&
                                         string.IsNullOrWhiteSpace(apiFieldAttribute.Name);
 
             return new PropertyAuditResult(

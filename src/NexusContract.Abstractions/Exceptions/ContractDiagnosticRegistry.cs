@@ -235,7 +235,7 @@ namespace PubSoft.NexusContract.Abstractions.Exceptions
             var templates = targetCulture.Name.StartsWith("zh") ? ZhCnTemplates : EnUsTemplates;
 
             // 2. 如果模板不存在，返回安全的备用信息
-            if (!templates.TryGetValue(errorCode, out var template))
+            if (!templates.TryGetValue(errorCode, out string? template))
             {
                 return $"[Unknown Error {errorCode}] Context: {string.Join(", ", contextArgs ?? Array.Empty<object>())}";
             }

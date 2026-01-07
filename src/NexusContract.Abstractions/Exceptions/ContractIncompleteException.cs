@@ -10,6 +10,10 @@ namespace PubSoft.NexusContract.Abstractions.Exceptions
     /// - ErrorCode: 唯一标识码（NXC1xx 静态/NXC2xx 运行期）
     /// - ContextArgs: 运行时上下文（类名、属性名、路径等）
     /// - ContractType: 违规的契约类型
+    /// 
+    /// 设计权衡：
+    /// - ContractIncompleteException (本类): 用于运行时 Fail-Fast，立即中断非法操作。
+    /// - ContractDiagnostic (记录): 用于启动期批量扫描，收集所有问题生成报告，不抛出异常。
     /// </summary>
     public class ContractIncompleteException : Exception
     {

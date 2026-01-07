@@ -10,17 +10,22 @@ namespace PubSoft.NexusContract.Core.Reflection
     /// 运行期直接读布尔值，避免重复的 string.IsNullOrEmpty() 操作。
     /// 性能收益：启动期承担一次性成本，运行期 O(1) 查询，消除反射热点。
     /// </summary>
-    public sealed class PropertyAuditResult
+    public sealed class PropertyAuditResult(
+        PropertyInfo propertyInfo,
+        Abstractions.Attributes.ApiFieldAttribute apiField,
+        bool isEncryptedWithoutName,
+        bool isComplexWithoutName,
+        bool isComplexType)
     {
         /// <summary>
         /// 属性的反射信息
         /// </summary>
-        public PropertyInfo PropertyInfo { get; }
+        public PropertyInfo PropertyInfo { get; } = propertyInfo ?? throw new ArgumentNullException(nameof(propertyInfo));
 
         /// <summary>
         /// ApiField 属性标注
         /// </summary>
-        public Abstractions.Attributes.ApiFieldAttribute ApiField { get; }
+        public Abstractions.Attributes.ApiFieldAttribute ApiField { get; } = apiField ?? throw new ArgumentNullException(nameof(apiField));
 
         /// <summary>
         /// 【规则 R-201】缓存的审计结果：加密字段是否缺少显式名称
@@ -37,7 +42,7 @@ namespace PubSoft.NexusContract.Core.Reflection
         /// if (fieldAttr.IsEncrypted &amp;&amp; string.IsNullOrEmpty(fieldAttr.Name))
         ///     throw ...（这样会导致重复的反射检查）
         /// </summary>
-        public bool IsEncryptedWithoutName { get; }
+        public bool IsEncryptedWithoutName { get; } = isEncryptedWithoutName;
 
         /// <summary>
         /// 【规则 R-207】缓存的审计结果：嵌套深度 > 1 的复杂字段是否缺少显式名称
@@ -48,25 +53,11 @@ namespace PubSoft.NexusContract.Core.Reflection
         /// 
         /// 这是【NXC107】约束的缓存形式
         /// </summary>
-        public bool IsComplexWithoutName { get; }
+        public bool IsComplexWithoutName { get; } = isComplexWithoutName;
 
         /// <summary>
         /// 是否为复杂类型（对象或列表）
         /// </summary>
-        public bool IsComplexType { get; }
-
-        public PropertyAuditResult(
-            PropertyInfo propertyInfo,
-            Abstractions.Attributes.ApiFieldAttribute apiField,
-            bool isEncryptedWithoutName,
-            bool isComplexWithoutName,
-            bool isComplexType)
-        {
-            PropertyInfo = propertyInfo ?? throw new ArgumentNullException(nameof(propertyInfo));
-            ApiField = apiField ?? throw new ArgumentNullException(nameof(apiField));
-            IsEncryptedWithoutName = isEncryptedWithoutName;
-            IsComplexWithoutName = isComplexWithoutName;
-            IsComplexType = isComplexType;
-        }
+        public bool IsComplexType { get; } = isComplexType;
     }
 }

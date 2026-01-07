@@ -56,7 +56,7 @@ namespace PubSoft.NexusContract.Core.Utilities
         /// <returns>true 表示集合类型</returns>
         public static bool IsCollectionType(Type type)
         {
-            return type != typeof(string) 
+            return type != typeof(string)
                 && typeof(IEnumerable).IsAssignableFrom(type);
         }
 

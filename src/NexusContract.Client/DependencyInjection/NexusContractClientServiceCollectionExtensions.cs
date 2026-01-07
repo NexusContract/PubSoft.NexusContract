@@ -85,7 +85,7 @@ namespace PubSoft.NexusContract.Client.DependencyInjection
 
             // 为每个网关注册命名的 HttpClient（.NET 10 原生支持）
             services.AddHttpClient(providerKey)
-                .ConfigureHttpClient(client => 
+                .ConfigureHttpClient(client =>
                 {
                     client.BaseAddress = gatewayUri;
                     client.Timeout = TimeSpan.FromSeconds(30);
@@ -128,7 +128,7 @@ namespace PubSoft.NexusContract.Client.DependencyInjection
             {
                 var factory = sp.GetRequiredService<NexusGatewayClientFactory>();
                 var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
-                var firstKey = _gateways.Keys.First();
+                string firstKey = _gateways.Keys.First();
                 var httpClient = httpClientFactory.CreateClient(firstKey);
                 return factory.CreateClient(firstKey, httpClient);
             });

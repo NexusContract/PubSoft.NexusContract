@@ -177,19 +177,12 @@ namespace PubSoft.NexusContract.Providers.Alipay
     /// <summary>
     /// 支付宝 API 异常
     /// </summary>
-    public class AlipayApiException : Exception
+    public class AlipayApiException(string message, System.Net.HttpStatusCode statusCode, string responseBody) : Exception(message)
     {
         /// <summary>HTTP 状态码</summary>
-        public System.Net.HttpStatusCode StatusCode { get; }
+        public System.Net.HttpStatusCode StatusCode { get; } = statusCode;
 
         /// <summary>原始响应体</summary>
-        public string ResponseBody { get; }
-
-        public AlipayApiException(string message, System.Net.HttpStatusCode statusCode, string responseBody)
-            : base(message)
-        {
-            StatusCode = statusCode;
-            ResponseBody = responseBody;
-        }
+        public string ResponseBody { get; } = responseBody;
     }
 }

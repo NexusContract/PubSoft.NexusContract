@@ -62,7 +62,7 @@ namespace Demo.Alipay.HttpApi.Endpoints
         {
             // 使用契约元数据注册表获取元数据（自动缓存）
             var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(typeof(TRequest));
-            
+
             if (metadata.Operation == null)
             {
                 throw new InvalidOperationException(
@@ -76,7 +76,7 @@ namespace Demo.Alipay.HttpApi.Endpoints
             string route = methodName.StartsWith("alipay.", StringComparison.OrdinalIgnoreCase)
                 ? methodName.Substring("alipay.".Length).Replace('.', '/')
                 : methodName.Replace('.', '/');
-            
+
             // 根据HttpVerb配置路由
             switch (metadata.Operation.Verb)
             {

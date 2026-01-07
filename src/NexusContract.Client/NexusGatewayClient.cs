@@ -86,8 +86,8 @@ namespace PubSoft.NexusContract.Client
                 // 5. 检查 HTTP 状态
                 if (!httpResponse.IsSuccessStatusCode)
                 {
-                    var statusCodeInt = (int)httpResponse.StatusCode;
-                    var errorContent = await httpResponse.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    int statusCodeInt = (int)httpResponse.StatusCode;
+                    string errorContent = await httpResponse.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 
                     // 尝试将 body 反序列化为共享的 NxcErrorEnvelope
                     string? parsedCode = null;
@@ -118,7 +118,7 @@ namespace PubSoft.NexusContract.Client
                         // 忽略解析错误，回退到原始字符串
                     }
 
-                    var effectiveMessage = string.IsNullOrWhiteSpace(parsedMessage)
+                    string effectiveMessage = string.IsNullOrWhiteSpace(parsedMessage)
                         ? $"Gateway returned {httpResponse.StatusCode}: {errorContent}"
                         : parsedMessage;
 
@@ -167,7 +167,7 @@ namespace PubSoft.NexusContract.Client
                     $"Unexpected error: {ex.Message}",
                     ex);
             }
-            
+
             // 【决策 A-503】异常统一化原理：
             // 无论错误来自契约验证、JSON 序列化、HTTP 通信还是反序列化，
             // 都统一为 NexusCommunicationException 并自动填充 NXC 诊断码。

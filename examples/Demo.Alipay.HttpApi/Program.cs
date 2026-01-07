@@ -2,12 +2,16 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
+using System.Linq;
 using FastEndpoints;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PubSoft.NexusContract.Providers.Alipay;
 using PubSoft.NexusContract.Providers.Alipay.ServiceConfiguration;
+using PubSoft.NexusContract.Core.Reflection;
+using PubSoft.NexusContract.Abstractions.Attributes;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,6 +40,37 @@ app.UseFastEndpoints(config =>
 
 // ==================== 步骤4：测试端点 ====================
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
+
+// ==================== 步骤5：启动期契约体检示例 ====================
+// 在应用启动时扫描当前 AppDomain 中的类型，调用 Preload 进行体检并打印报告。
+try
+{
+    var types = AppDomain.CurrentDomain.GetAssemblies()
+        .SelectMany(a =>
+        {
+            try { return a.GetTypes(); } catch { return Array.Empty<Type>(); }
+        })
+        .Where(t => t.IsClass && !t.IsAbstract && t.GetCustomAttributes(typeof(ApiOperationAttribute), inherit: false).Any())
+        .ToArray();
+
+    var report = NexusContractMetadataRegistry.Instance.Preload(types, warmup: true);
+    report.PrintToConsole(includeDetails: true);
+
+    // 可选：序列化诊断以便 CI / 保存
+    string json = JsonSerializer.Serialize(report.Diagnostics, new JsonSerializerOptions { WriteIndented = true });
+    Console.WriteLine(json);
+
+    if (report.HasCriticalErrors)
+    {
+        Console.Error.WriteLine("Detected critical contract errors; aborting startup.");
+        Environment.Exit(1);
+    }
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"Preload failed: {ex.Message}");
+    Environment.Exit(2);
+}
 
 app.Run();
 

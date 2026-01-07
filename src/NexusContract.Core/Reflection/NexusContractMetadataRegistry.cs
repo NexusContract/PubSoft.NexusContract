@@ -8,6 +8,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using PubSoft.NexusContract.Abstractions.Attributes;
+using PubSoft.NexusContract.Abstractions.Exceptions;
 
 namespace PubSoft.NexusContract.Core.Reflection
 {
@@ -87,44 +88,240 @@ namespace PubSoft.NexusContract.Core.Reflection
         }
 
         /// <summary>
-        /// Preload multiple contract types at startup with error aggregation.
-        /// Returns aggregated errors; successful metadata is cached.
-        /// 批量启动模式：错误聚合，一次扫描给出完整"体检报告"
+        /// 【决策 A-308】启动期批量预加载（体检报告模式）
+        /// 
+        /// 改进点：
+        /// 1. 返回结构化的 DiagnosticReport，而非简单的 List&lt;string&gt;
+        /// 2. 使用 ValidateWithReport 收集所有错误，而非遇到第一个错误就停止
+        /// 3. 即使某个契约有错误，仍继续扫描其他契约
+        /// 4. 区分"致命错误"（阻断缓存）和"普通错误"（记录但继续）
         /// </summary>
-        public List<string> Preload(IEnumerable<Type> types, bool warmup = false)
+        public DiagnosticReport Preload(IEnumerable<Type> types, bool warmup = false)
         {
             if (types == null) throw new ArgumentNullException(nameof(types));
 
-            var allErrors = new List<string>();
+            var report = new DiagnosticReport();
 
             foreach (var type in types)
             {
                 try
                 {
-                    // Skip types without ApiOperation marker
-                    if (type.GetCustomAttribute<ApiOperationAttribute>() == null) continue;
+                    if (type.GetCustomAttribute<ApiOperationAttribute>() == null)
+                        continue;
 
-                    var errors = new List<string>();
-                    var metadata = BuildMetadata(type, warmup, aggregateErrors: true, errors);
+                    string contractName = type.FullName ?? type.Name ?? "Unknown";
 
-                    if (errors.Count == 0)
+                    var validationDiagnostics = ContractValidator.ValidateWithReport(type);
+
+                    bool hasCriticalError = validationDiagnostics.Any(d => d.Severity == DiagnosticSeverity.Critical);
+
+                    if (hasCriticalError)
                     {
-                        // Only cache if no errors occurred
+                        report.AddRange(validationDiagnostics);
+                        continue;
+                    }
+
+                    report.AddRange(validationDiagnostics);
+
+                    var buildDiagnostics = new List<ContractDiagnostic>();
+                    var metadata = BuildMetadataWithReport(type, warmup, buildDiagnostics);
+
+                    if (buildDiagnostics.Count == 0 && metadata != null)
+                    {
                         _cache[type] = metadata;
+                        report.IncrementSuccessCount();
                     }
                     else
                     {
-                        allErrors.AddRange(errors);
+                        report.AddRange(buildDiagnostics);
                     }
                 }
                 catch (Exception ex)
                 {
-                    var msg = ex is TargetInvocationException ? ex.InnerException?.Message : ex.Message;
-                    allErrors.Add($"[Critical] {type.FullName}: 扫描失败。原因: {msg}");
+                    string contractName = type.FullName ?? type.Name ?? "Unknown";
+                    string? msg = ex is TargetInvocationException ? ex.InnerException?.Message : ex.Message;
+
+                    report.Add(new ContractDiagnostic(
+                        contractName,
+                        "NXC999",
+                        $"[Critical] 扫描失败。原因: {msg}\n{ex.StackTrace}",
+                        DiagnosticSeverity.Critical,
+                        propertyName: null,
+                        propertyPath: null,
+                        msg ?? "Unknown error"
+                    ));
                 }
             }
 
-            return allErrors;
+            return report;
+        }
+
+        /// <summary>
+        /// 构建元数据（诊断收集版本）
+        /// 
+        /// 改进点：
+        /// 1. 不再使用 aggregateErrors 布尔值 + List&lt;string&gt;，改用 List&lt;ContractDiagnostic&gt;
+        /// 2. 即使 Auditor 失败，仍尝试编译 Projector/Hydrator
+        /// 3. 返回 null 表示完全失败，否则返回部分元数据
+        /// </summary>
+        private ContractMetadata? BuildMetadataWithReport(
+            Type type,
+            bool warmup,
+            List<ContractDiagnostic> diagnostics)
+        {
+            string contractName = type.FullName ?? type.Name ?? "Unknown";
+
+            var opAttr = type.GetCustomAttribute<ApiOperationAttribute>();
+            if (opAttr == null)
+            {
+                diagnostics.Add(ContractDiagnostic.Create(
+                    contractName,
+                    ContractDiagnosticRegistry.NXC101,
+                    propertyName: null,
+                    propertyPath: null,
+                    type.Name ?? "Unknown"
+                ));
+                return null;
+            }
+
+            var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            if (props.Length == 0)
+            {
+                diagnostics.Add(new ContractDiagnostic(
+                    contractName,
+                    "NXC108",
+                    $"契约类 {type.Name} 至少需要定义一个公共属性。",
+                    DiagnosticSeverity.Critical
+                ));
+                return null;
+            }
+
+            var properties = new List<PropertyMetadata>();
+            var auditedProps = new List<PropertyAuditResult>();
+
+            foreach (var prop in props)
+            {
+                if (!prop.CanRead || !prop.CanWrite)
+                {
+                    diagnostics.Add(new ContractDiagnostic(
+                        contractName,
+                        "NXC109",
+                        $"属性 {type.Name}.{prop.Name} 需要同时具有 get 与 set。",
+                        DiagnosticSeverity.Error,
+                        propertyName: prop.Name
+                    ));
+                    continue;
+                }
+
+                var fieldAttr = prop.GetCustomAttribute<ApiFieldAttribute>();
+                if (fieldAttr == null) continue;
+
+                try
+                {
+                    var auditResult = ContractAuditor.AuditProperty(prop, fieldAttr, currentDepth: 1);
+                    properties.Add(new PropertyMetadata(prop, fieldAttr, auditResult));
+
+                    if (!auditResult.IsEncryptedWithoutName && !auditResult.IsComplexWithoutName)
+                    {
+                        auditedProps.Add(auditResult);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    diagnostics.Add(new ContractDiagnostic(
+                        contractName,
+                        "NXC110",
+                        $"审计属性 {type.Name}.{prop.Name} 失败: {ex.Message}",
+                        DiagnosticSeverity.Error,
+                        propertyName: prop.Name,
+                        propertyPath: null,
+                        ex.Message
+                    ));
+                }
+            }
+
+            Func<object, Abstractions.Policies.INamingPolicy, Abstractions.Security.IEncryptor?, Dictionary<string, object>>? projector = null;
+            Func<IDictionary<string, object>, Abstractions.Policies.INamingPolicy, Abstractions.Security.IDecryptor?, object>? hydrator = null;
+
+            try
+            {
+                projector = BuildProjector(type, auditedProps.ToArray());
+
+                if (warmup && projector != null)
+                {
+                    try
+                    {
+                        object? instance = Activator.CreateInstance(type);
+                        var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
+                        if (instance != null) projector(instance, dummyNaming, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        diagnostics.Add(new ContractDiagnostic(
+                            contractName,
+                            "NXC111",
+                            $"预热投影器失败: {ex.Message}",
+                            DiagnosticSeverity.Warning,
+                            propertyName: null,
+                            propertyPath: null,
+                            ex.Message
+                        ));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add(new ContractDiagnostic(
+                    contractName,
+                    "NXC112",
+                    $"生成投影器失败: {ex.Message}",
+                    DiagnosticSeverity.Error,
+                    propertyName: null,
+                    propertyPath: null,
+                    ex.Message
+                ));
+            }
+
+            try
+            {
+                hydrator = BuildHydrator(type, auditedProps.ToArray());
+
+                if (warmup && hydrator != null)
+                {
+                    try
+                    {
+                        var testDict = new Dictionary<string, object>();
+                        var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
+                        hydrator(testDict, dummyNaming, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        diagnostics.Add(new ContractDiagnostic(
+                            contractName,
+                            "NXC113",
+                            $"预热回填器失败: {ex.Message}",
+                            DiagnosticSeverity.Warning,
+                            propertyName: null,
+                            propertyPath: null,
+                            ex.Message
+                        ));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add(new ContractDiagnostic(
+                    contractName,
+                    "NXC114",
+                    $"生成回填器失败: {ex.Message}",
+                    DiagnosticSeverity.Warning,
+                    propertyName: null,
+                    propertyPath: null,
+                    ex.Message
+                ));
+            }
+
+            return new ContractMetadata(type, opAttr, properties.AsReadOnly(), projector, hydrator);
         }
 
         /// <summary>
@@ -143,7 +340,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             }
             catch (Exception ex)
             {
-                var msg = ex is TargetInvocationException ? ex.InnerException?.Message : ex.Message;
+                string? msg = ex is TargetInvocationException ? ex.InnerException?.Message : ex.Message;
                 if (aggregateErrors && errors != null)
                 {
                     errors.Add($"[Validator] {type.FullName}: {msg}");
@@ -158,7 +355,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             var opAttr = type.GetCustomAttribute<ApiOperationAttribute>();
             if (opAttr == null)
             {
-                var err = $"[Type Error] {type.FullName}: 契约类必须标记 [ApiOperation]。";
+                string err = $"[Type Error] {type.FullName}: 契约类必须标记 [ApiOperation]。";
                 if (aggregateErrors && errors != null)
                 {
                     errors.Add(err);
@@ -172,7 +369,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
             if (props.Length == 0)
             {
-                var err = $"[Type Error] {type.FullName}: 契约类至少需要定义一个公共属性。";
+                string err = $"[Type Error] {type.FullName}: 契约类至少需要定义一个公共属性。";
                 if (aggregateErrors && errors != null)
                 {
                     errors.Add(err);
@@ -192,7 +389,7 @@ namespace PubSoft.NexusContract.Core.Reflection
                 // Validate getter/setter completeness
                 if (!prop.CanRead || !prop.CanWrite)
                 {
-                    var err = $"[Property Error] {type.FullName}.{prop.Name}: 需要同时具有 get 与 set。";
+                    string err = $"[Property Error] {type.FullName}.{prop.Name}: 需要同时具有 get 与 set。";
                     if (aggregateErrors && errors != null)
                     {
                         errors.Add(err);
@@ -220,7 +417,7 @@ namespace PubSoft.NexusContract.Core.Reflection
                 }
                 catch (Exception ex)
                 {
-                    var err = $"[Audit Error] {type.FullName}.{prop.Name}: {ex.GetType().Name} {ex.Message}";
+                    string err = $"[Audit Error] {type.FullName}.{prop.Name}: {ex.GetType().Name} {ex.Message}";
                     if (aggregateErrors && errors != null)
                     {
                         errors.Add(err);
@@ -244,14 +441,14 @@ namespace PubSoft.NexusContract.Core.Reflection
                 {
                     try
                     {
-                        var instance = Activator.CreateInstance(type);
+                        object? instance = Activator.CreateInstance(type);
                         // 需要 dummy 服务来测试
                         var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
                         if (instance != null) projector(instance, dummyNaming, null);
                     }
                     catch (Exception ex)
                     {
-                        var err = $"[Warmup Error] {type.FullName}: 预热运行失败：{ex.GetType().Name} {ex.Message}";
+                        string err = $"[Warmup Error] {type.FullName}: 预热运行失败：{ex.GetType().Name} {ex.Message}";
                         if (aggregateErrors && errors != null)
                         {
                             errors.Add(err);
@@ -262,7 +459,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             }
             catch (Exception ex)
             {
-                var err = $"[Compile Error] {type.FullName}: 生成投影器失败：{ex.GetType().Name} {ex.Message}";
+                string err = $"[Compile Error] {type.FullName}: 生成投影器失败：{ex.GetType().Name} {ex.Message}";
                 if (aggregateErrors && errors != null)
                 {
                     errors.Add(err);
@@ -288,7 +485,7 @@ namespace PubSoft.NexusContract.Core.Reflection
                     }
                     catch (Exception ex)
                     {
-                        var err = $"[Hydrator Warmup Error] {type.FullName}: 预热运行失败：{ex.GetType().Name} {ex.Message}";
+                        string err = $"[Hydrator Warmup Error] {type.FullName}: 预热运行失败：{ex.GetType().Name} {ex.Message}";
                         if (aggregateErrors && errors != null)
                         {
                             errors.Add(err);
@@ -298,7 +495,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             }
             catch (Exception ex)
             {
-                var err = $"[Hydrator Compile Error] {type.FullName}: 生成回填器失败：{ex.GetType().Name} {ex.Message}";
+                string err = $"[Hydrator Compile Error] {type.FullName}: 生成回填器失败：{ex.GetType().Name} {ex.Message}";
                 if (aggregateErrors && errors != null)
                 {
                     errors.Add(err);
@@ -318,13 +515,13 @@ namespace PubSoft.NexusContract.Core.Reflection
         /// 包含嵌套对象或集合的 Contract 会在 BuildMetadata 阶段被排除，fallback 到反射路径
         /// </summary>
         private static Func<object, Abstractions.Policies.INamingPolicy, Abstractions.Security.IEncryptor?, Dictionary<string, object>> BuildProjector(
-            Type contractType, 
+            Type contractType,
             PropertyAuditResult[] auditResults)
         {
             var param = Expression.Parameter(typeof(object), "o");
             var namingPolicyParam = Expression.Parameter(typeof(Abstractions.Policies.INamingPolicy), "namingPolicy");
             var encryptorParam = Expression.Parameter(typeof(Abstractions.Security.IEncryptor), "encryptor");
-            
+
             var typedParam = Expression.Variable(contractType, "t");
             var dictVar = Expression.Variable(typeof(Dictionary<string, object>), "d");
             var expressions = new List<Expression>();
@@ -333,7 +530,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             expressions.Add(Expression.Assign(typedParam, Expression.Convert(param, contractType)));
 
             // d = new Dictionary<string, object>(capacity)
-            var ctor = typeof(Dictionary<string, object>).GetConstructor(new[] { typeof(int) }) 
+            var ctor = typeof(Dictionary<string, object>).GetConstructor(new[] { typeof(int) })
                        ?? typeof(Dictionary<string, object>).GetConstructor(Type.EmptyTypes)!;
             Expression newDict = ctor.GetParameters().Length == 1
                 ? Expression.New(ctor, Expression.Constant(auditResults.Length))
@@ -348,7 +545,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             {
                 var prop = audit.PropertyInfo;
                 var apiField = audit.ApiField;
-                
+
                 // 判断字段名：优先使用显式 Name，否则调用 NamingPolicy.ConvertName
                 Expression keyExpr;
                 if (!string.IsNullOrWhiteSpace(apiField.Name))
@@ -362,25 +559,25 @@ namespace PubSoft.NexusContract.Core.Reflection
 
                 // 读取属性值：t.Property
                 var propAccess = Expression.Property(typedParam, prop);
-                
+
                 // 如果加密：调用 encryptor.Encrypt(value.ToString())
                 Expression valueExpr;
                 if (apiField.IsEncrypted)
                 {
                     // 生成：encryptor != null ? (value != null ? encryptor.Encrypt(value.ToString()) : null) : throw
                     var encryptorNotNull = Expression.NotEqual(encryptorParam, Expression.Constant(null, typeof(Abstractions.Security.IEncryptor)));
-                    
+
                     // 检查属性值是否为null
                     var propAsObject = Expression.Convert(propAccess, typeof(object));
                     var propNotNull = Expression.NotEqual(propAsObject, Expression.Constant(null, typeof(object)));
-                    
+
                     // value.ToString()
                     var toStringMethod = typeof(object).GetMethod("ToString")!;
                     var valueAsString = Expression.Call(propAsObject, toStringMethod);
-                    
+
                     // encryptor.Encrypt(valueStr)
                     var encryptCall = Expression.Call(encryptorParam, encryptMethod, valueAsString);
-                    
+
                     // value != null ? encryptor.Encrypt(value.ToString()) : null
                     var encryptOrNull = Expression.Condition(
                         propNotNull,
@@ -388,9 +585,9 @@ namespace PubSoft.NexusContract.Core.Reflection
                         Expression.Constant(null, typeof(object)),
                         typeof(object)
                     );
-                    
+
                     // throw with detailed diagnostic info
-                    var errorMessage = $"Encryption required but encryptor is null. Type: {contractType.Name}, Property: {prop.Name}";
+                    string errorMessage = $"Encryption required but encryptor is null. Type: {contractType.Name}, Property: {prop.Name}";
                     var throwExpr = Expression.Throw(
                         Expression.New(
                             typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!,
@@ -398,7 +595,7 @@ namespace PubSoft.NexusContract.Core.Reflection
                         ),
                         typeof(object)
                     );
-                    
+
                     // encryptor != null ? encryptOrNull : throw
                     valueExpr = Expression.Condition(encryptorNotNull, encryptOrNull, throwExpr, typeof(object));
                 }
@@ -417,9 +614,9 @@ namespace PubSoft.NexusContract.Core.Reflection
 
             var body = Expression.Block(new[] { typedParam, dictVar }, expressions);
             var lambda = Expression.Lambda<Func<object, Abstractions.Policies.INamingPolicy, Abstractions.Security.IEncryptor?, Dictionary<string, object>>>(
-                body, 
-                param, 
-                namingPolicyParam, 
+                body,
+                param,
+                namingPolicyParam,
                 encryptorParam
             );
             return lambda.Compile();
@@ -433,7 +630,7 @@ namespace PubSoft.NexusContract.Core.Reflection
         /// 检测到复杂类型时直接返回 null，触发 fallback 到反射路径（ResponseHydrationEngine.HydrateInternal）
         /// </summary>
         private static Func<IDictionary<string, object>, Abstractions.Policies.INamingPolicy, Abstractions.Security.IDecryptor?, object>? BuildHydrator(
-            Type contractType, 
+            Type contractType,
             PropertyAuditResult[] auditResults)
         {
             // 仅为简单POCO构建Hydrator（无复杂类型）
@@ -446,7 +643,7 @@ namespace PubSoft.NexusContract.Core.Reflection
             var dictParam = Expression.Parameter(typeof(IDictionary<string, object>), "dict");
             var namingPolicyParam = Expression.Parameter(typeof(Abstractions.Policies.INamingPolicy), "namingPolicy");
             var decryptorParam = Expression.Parameter(typeof(Abstractions.Security.IDecryptor), "decryptor");
-            
+
             var instanceVar = Expression.Variable(contractType, "instance");
             var valueVar = Expression.Variable(typeof(object), "value");
             var expressions = new List<Expression>();
@@ -502,9 +699,9 @@ namespace PubSoft.NexusContract.Core.Reflection
                     var decryptorNotNull = Expression.NotEqual(decryptorParam, Expression.Constant(null, typeof(Abstractions.Security.IDecryptor)));
                     var valueAsString = Expression.Convert(valueVar, typeof(string));
                     var decryptCall = Expression.Call(decryptorParam, decryptMethod, valueAsString);
-                    
+
                     // throw with detailed diagnostic info
-                    var errorMessage = $"Decryption required but decryptor is null. Type: {contractType.Name}, Property: {prop.Name}";
+                    string errorMessage = $"Decryption required but decryptor is null. Type: {contractType.Name}, Property: {prop.Name}";
                     var throwExpr = Expression.Throw(
                         Expression.New(
                             typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!,
@@ -512,7 +709,7 @@ namespace PubSoft.NexusContract.Core.Reflection
                         ),
                         typeof(string)
                     );
-                    
+
                     finalValueExpr = Expression.Condition(decryptorNotNull, decryptCall, throwExpr, typeof(string));
                 }
 
@@ -535,7 +732,7 @@ namespace PubSoft.NexusContract.Core.Reflection
                         Expression.Constant(underlyingType)
                     );
                     convertedValue = Expression.Convert(changeTypeCall, underlyingType);
-                    
+
                     // 处理Nullable<T>
                     if (Nullable.GetUnderlyingType(targetType) != null)
                     {
@@ -568,9 +765,9 @@ namespace PubSoft.NexusContract.Core.Reflection
             );
 
             var lambda = Expression.Lambda<Func<IDictionary<string, object>, Abstractions.Policies.INamingPolicy, Abstractions.Security.IDecryptor?, object>>(
-                body, 
-                dictParam, 
-                namingPolicyParam, 
+                body,
+                dictParam,
+                namingPolicyParam,
                 decryptorParam
             );
             return lambda.Compile();

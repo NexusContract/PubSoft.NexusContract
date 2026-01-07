@@ -31,16 +31,10 @@ namespace PubSoft.NexusContract.Core.Hydration
     /// - 物理边界感知（MaxNestingDepth, MaxCollectionSize）
     /// - 强力容错能力（自动类型转换、解密、递归）
     /// </summary>
-    public sealed class ResponseHydrationEngine
+    public sealed class ResponseHydrationEngine(INamingPolicy namingPolicy, IDecryptor? decryptor = null)
     {
-        private readonly INamingPolicy _namingPolicy;
-        private readonly IDecryptor? _decryptor;
-
-        public ResponseHydrationEngine(INamingPolicy namingPolicy, IDecryptor? decryptor = null)
-        {
-            _namingPolicy = namingPolicy ?? throw new ArgumentNullException(nameof(namingPolicy));
-            _decryptor = decryptor;
-        }
+        private readonly INamingPolicy _namingPolicy = namingPolicy ?? throw new ArgumentNullException(nameof(namingPolicy));
+        private readonly IDecryptor? _decryptor = decryptor;
 
         /// <summary>
         /// 将 Dictionary 回填到强类型 Response
@@ -81,7 +75,7 @@ namespace PubSoft.NexusContract.Core.Hydration
             // 物理红线：防御性深度检查
             if (depth > ContractBoundaries.MaxNestingDepth)
             {
-                var typeName = type.FullName ?? type.Name ?? "Unknown";
+                string typeName = type.FullName ?? type.Name ?? "Unknown";
                 throw new ContractIncompleteException(
                     typeName,
                     ContractDiagnosticRegistry.NXC203,
@@ -90,9 +84,9 @@ namespace PubSoft.NexusContract.Core.Hydration
             }
 
             var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(type);
-            var instance = Activator.CreateInstance(type)!;
-            var typeFullName = type.FullName ?? type.Name ?? "Unknown";
-            var typeName2 = type.Name ?? "Unknown";
+            object instance = Activator.CreateInstance(type)!;
+            string typeFullName = type.FullName ?? type.Name ?? "Unknown";
+            string typeName2 = type.Name ?? "Unknown";
 
             foreach (var pm in metadata.Properties)
             {
@@ -100,7 +94,7 @@ namespace PubSoft.NexusContract.Core.Hydration
                 string fieldName = pm.ApiField.Name ?? _namingPolicy.ConvertName(pm.PropertyInfo.Name);
 
                 // 提取源数据
-                if (!source.TryGetValue(fieldName, out var rawValue) || rawValue == null)
+                if (!source.TryGetValue(fieldName, out object? rawValue) || rawValue == null)
                 {
                     // NXC301: 必需字段缺失检查
                     if (pm.ApiField.IsRequired && !TypeUtilities.IsNullable(pm.PropertyInfo.PropertyType))
@@ -118,7 +112,7 @@ namespace PubSoft.NexusContract.Core.Hydration
                 }
 
                 // 执行值转换（含解密、递归、类型转换）
-                var finalValue = TransformValue(rawValue, pm, depth);
+                object finalValue = TransformValue(rawValue, pm, depth);
                 pm.PropertyInfo.SetValue(instance, finalValue);
             }
 
@@ -137,8 +131,8 @@ namespace PubSoft.NexusContract.Core.Hydration
             {
                 if (_decryptor == null)
                 {
-                    var declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
-                    var declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                    string declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                    string declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
                     throw new ContractIncompleteException(
                         declaringTypeName,
                         ContractDiagnosticRegistry.NXC202,
@@ -186,15 +180,15 @@ namespace PubSoft.NexusContract.Core.Hydration
                 elementType = typeof(object);
 
             var resultList = new List<object>();
-            var itemCount = 0;
+            int itemCount = 0;
 
-            foreach (var item in rawList)
+            foreach (object? item in rawList)
             {
                 // NXC303: 集合大小限制
                 if (++itemCount > ContractBoundaries.MaxCollectionSize)
                 {
-                    var declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
-                    var declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                    string declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                    string declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
                     throw new ContractIncompleteException(
                         declaringTypeName,
                         ContractDiagnosticRegistry.NXC303,
@@ -215,11 +209,11 @@ namespace PubSoft.NexusContract.Core.Hydration
                 {
                     // 加密字符串解密
                     string s when pm.ApiField.IsEncrypted => DecryptValue(s, pm),
-                    
+
                     // 复杂对象递归回填
                     IDictionary<string, object> dict when TypeUtilities.IsComplexType(elementType)
                         => HydrateInternal(elementType, dict, depth + 1),
-                    
+
                     // 基础类型转换
                     _ => RobustConvert(item, elementType, pm)
                 };
@@ -265,8 +259,8 @@ namespace PubSoft.NexusContract.Core.Hydration
             catch
             {
                 // NXC302: 类型转换失败，精准告知现场
-                var declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
-                var declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                string declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                string declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
                 throw new ContractIncompleteException(
                     declaringTypeName,
                     ContractDiagnosticRegistry.NXC302,
@@ -285,8 +279,8 @@ namespace PubSoft.NexusContract.Core.Hydration
         {
             if (_decryptor == null)
             {
-                var declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
-                var declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                string declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
+                string declaringTypeShortName = pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
                 throw new ContractIncompleteException(
                     declaringTypeName,
                     ContractDiagnosticRegistry.NXC202,
@@ -307,13 +301,13 @@ namespace PubSoft.NexusContract.Core.Hydration
             if (targetType.IsGenericType)
             {
                 var genericDef = targetType.GetGenericTypeDefinition();
-                
+
                 // List<T>
                 if (genericDef == typeof(List<>))
                 {
                     var listType = typeof(List<>).MakeGenericType(elementType);
                     var list = Activator.CreateInstance(listType) as IList;
-                    foreach (var item in items)
+                    foreach (object item in items)
                         list?.Add(item);
                     return list!;
                 }
@@ -323,7 +317,7 @@ namespace PubSoft.NexusContract.Core.Hydration
                 {
                     var listType = typeof(List<>).MakeGenericType(elementType);
                     var list = Activator.CreateInstance(listType) as IList;
-                    foreach (var item in items)
+                    foreach (object item in items)
                         list?.Add(item);
                     return list!;
                 }
