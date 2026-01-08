@@ -110,8 +110,17 @@ namespace NexusContract.Core.Reflection
         /// 3. 即使某个契约有错误，仍继续扫描其他契约
         /// 4. 收集每个契约的所有问题后再决定是否构建元数据
         /// 5. 最后统一报告所有问题，对开发友好
+        /// 6. 支持传入 encryptor/decryptor 用于 warmup，避免 NXC111 警告
         /// </summary>
-        public DiagnosticReport Preload(IEnumerable<Type> types, bool warmup = false)
+        /// <param name="types">要预加载的契约类型集合</param>
+        /// <param name="warmup">是否进行预热（测试投影器和回填器）</param>
+        /// <param name="encryptor">加密器（可选，用于 warmup 阶段测试加密字段）</param>
+        /// <param name="decryptor">解密器（可选，用于 warmup 阶段测试解密字段）</param>
+        public DiagnosticReport Preload(
+            IEnumerable<Type> types, 
+            bool warmup = false,
+            Abstractions.Security.IEncryptor? encryptor = null,
+            Abstractions.Security.IDecryptor? decryptor = null)
         {
             if (types == null) throw new ArgumentNullException(nameof(types));
 
@@ -132,7 +141,7 @@ namespace NexusContract.Core.Reflection
                     // 2. 构建元数据（即使有错误也尝试构建，收集所有问题）
                     try
                     {
-                        var metadata = BuildMetadata(type, warmup, report);
+                        var metadata = BuildMetadata(type, warmup, report, encryptor, decryptor);
                         
                         // 3. 只有在没有错误时才缓存
                         if (!report.HasErrors)
@@ -189,7 +198,14 @@ namespace NexusContract.Core.Reflection
         /// <param name="type">契约类型</param>
         /// <param name="warmup">是否预热投影器</param>
         /// <param name="report">诊断报告（收集所有错误和警告）</param>
-        private ContractMetadata BuildMetadata(Type type, bool warmup, DiagnosticReport report)
+        /// <param name="encryptor">加密器（可选，用于 warmup）</param>
+        /// <param name="decryptor">解密器（可选，用于 warmup）</param>
+        private ContractMetadata BuildMetadata(
+            Type type, 
+            bool warmup, 
+            DiagnosticReport report,
+            Abstractions.Security.IEncryptor? encryptor = null,
+            Abstractions.Security.IDecryptor? decryptor = null)
         {
             string contractName = type.FullName ?? type.Name ?? "Unknown";
             
@@ -286,7 +302,7 @@ namespace NexusContract.Core.Reflection
                         {
                             object? instance = Activator.CreateInstance(type);
                             var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
-                            if (instance != null) projector(instance, dummyNaming, null);
+                            if (instance != null) projector(instance, dummyNaming, encryptor);
                         }
                         catch (Exception ex)
                         {
@@ -326,7 +342,7 @@ namespace NexusContract.Core.Reflection
                         {
                             var testDict = new Dictionary<string, object>();
                             var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
-                            hydrator(testDict, dummyNaming, null);
+                            hydrator(testDict, dummyNaming, decryptor);
                         }
                         catch (Exception ex)
                         {
@@ -574,8 +590,17 @@ namespace NexusContract.Core.Reflection
 
                 if (underlyingType == typeof(string))
                 {
-                    // 字符串类型直接使用（可能已解密）
-                    convertedValue = finalValueExpr;
+                    // 字符串类型：确保类型匹配
+                    // 如果 finalValueExpr 是 string（解密后）或 object（未解密），都需要转换
+                    if (finalValueExpr.Type == typeof(string))
+                    {
+                        convertedValue = finalValueExpr;
+                    }
+                    else
+                    {
+                        // 从 object 转换为 string
+                        convertedValue = Expression.TypeAs(finalValueExpr, typeof(string));
+                    }
                 }
                 else if (underlyingType.IsValueType)
                 {

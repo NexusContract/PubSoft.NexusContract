@@ -134,9 +134,9 @@ namespace NexusContract.Core.Reflection
 
                         sb.AppendLine($"  {icon} [{diagnostic.ErrorCode}]{location}");
                         string message = diagnostic.Message.Split('\n')[0];
-                        if (message.Length > 100)
+                        if (message.Length > 200)
                         {
-                            message = message.Substring(0, 97) + "...";
+                            message = message.Substring(0, 197) + "...";
                         }
                         sb.AppendLine($"     {message}");
                     }
