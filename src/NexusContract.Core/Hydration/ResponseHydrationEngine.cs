@@ -91,7 +91,10 @@ namespace NexusContract.Core.Hydration
             foreach (var pm in metadata.Properties)
             {
                 // 确定字段名：Path Pinning 优先
-                string fieldName = pm.ApiField.Name ?? _namingPolicy.ConvertName(pm.PropertyInfo.Name);
+                // 优先使用显式指定的 Name，只有当未指定时才使用命名策略
+                string fieldName = !string.IsNullOrEmpty(pm.ApiField.Name)
+                    ? pm.ApiField.Name
+                    : _namingPolicy.ConvertName(pm.PropertyInfo.Name);
 
                 // 提取源数据
                 if (!source.TryGetValue(fieldName, out object? rawValue) || rawValue == null)

@@ -51,10 +51,14 @@ namespace NexusContract.Core.Projection
             // 性能提升：从反射级（~100ns）→ 原生委托级（~10ns），约 10 倍提升
             if (metadata.Projector != null)
             {
-                return metadata.Projector(contract, _namingPolicy, _encryptor);
+                System.Diagnostics.Debug.WriteLine($"[ProjectionEngine] Using compiled projector for {contractType.Name}");
+                var result = metadata.Projector(contract, _namingPolicy, _encryptor);
+                System.Diagnostics.Debug.WriteLine($"[ProjectionEngine] Projected {result.Count} fields");
+                return result;
             }
 
             // Fallback：仅在 Projector 编译失败时使用反射路径
+            System.Diagnostics.Debug.WriteLine($"[ProjectionEngine] Fallback to reflection for {contractType.Name}");
             return ProjectInternal(contract, 0);
         }
 
@@ -101,7 +105,9 @@ namespace NexusContract.Core.Projection
                     continue;
                 }
 
-                string fieldName = !string.IsNullOrWhiteSpace(pm.ApiField.Name)
+                // 优先使用显式指定的 Name，只有当未指定时才使用命名策略
+                // 注意：空字符串视为"未指定"，也会使用命名策略
+                string fieldName = !string.IsNullOrEmpty(pm.ApiField.Name)
                     ? pm.ApiField.Name
                     : _namingPolicy.ConvertName(pm.PropertyInfo.Name);
 

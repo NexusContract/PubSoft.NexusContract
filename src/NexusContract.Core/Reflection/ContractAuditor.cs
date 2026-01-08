@@ -20,8 +20,6 @@ namespace NexusContract.Core.Reflection
     /// </summary>
     public static class ContractAuditor
     {
-        private static readonly int MaxDepth = Abstractions.Configuration.ContractBoundaries.MaxNestingDepth;
-
         /// <summary>
         /// 对单个属性进行审计，生成缓存化的审计结果
         /// </summary>
@@ -45,13 +43,14 @@ namespace NexusContract.Core.Reflection
             // 【规则 R-201】检查：加密字段必须显式命名
             // 结论缓存为 IsEncryptedWithoutName
             bool isEncryptedWithoutName = apiFieldAttribute.IsEncrypted &&
-                                          string.IsNullOrWhiteSpace(apiFieldAttribute.Name);
+                                          string.IsNullOrEmpty(apiFieldAttribute.Name);
 
-            // 【规则 R-207】检查：嵌套深度 > MaxDepth 的复杂字段必须显式命名
+            // 【规则 R-207】检查：第2层及以上（currentDepth > 1）的复杂字段必须显式命名
+            // 注意：这与 ContractValidator 中的逻辑保持一致（NXC107）
             // 结论缓存为 IsComplexWithoutName
             bool isComplexWithoutName = isComplexType &&
-                                        currentDepth > MaxDepth &&
-                                        string.IsNullOrWhiteSpace(apiFieldAttribute.Name);
+                                        currentDepth > 1 &&
+                                        string.IsNullOrEmpty(apiFieldAttribute.Name);
 
             return new PropertyAuditResult(
                 propertyInfo,

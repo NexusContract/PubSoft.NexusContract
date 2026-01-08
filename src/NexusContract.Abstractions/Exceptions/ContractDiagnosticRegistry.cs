@@ -40,6 +40,12 @@ namespace NexusContract.Abstractions.Exceptions
         public const string NXC402 = "NXC402"; // HSM 不可用
         public const string NXC403 = "NXC403"; // HSM 配额超限
 
+        // --- 5xx: 框架内部错误（代码生成/编译问题） ---
+        public const string NXC501 = "NXC501"; // 表达式树编译失败
+        public const string NXC502 = "NXC502"; // 类型转换失败
+        public const string NXC503 = "NXC503"; // 反射操作失败
+        public const string NXC999 = "NXC999"; // 未知框架错误（兜底）
+
         // --- 中文模板 (zh-CN) ---
         private static readonly Dictionary<string, string> ZhCnTemplates = new()
         {
@@ -122,6 +128,27 @@ namespace NexusContract.Abstractions.Exceptions
                 NXC403,
                 "[硬件层·NXC403] 硬件加密机（HSM）配额已满（并发签名数达到上限）。\n" +
                 "  建议: 降低并发量或申请增加 HSM 实例。"
+            },
+            {
+                NXC501,
+                "[框架·NXC501] 表达式树编译失败。\n" +
+                "  调查: 检查契约类型是否支持代码生成，可能需要简化类型结构。"
+            },
+            {
+                NXC502,
+                "[框架·NXC502] 类型转换失败。\n" +
+                "  调查: 检查属性类型是否与预期匹配，可能存在类型不兼容问题。"
+            },
+            {
+                NXC503,
+                "[框架·NXC503] 反射操作失败。\n" +
+                "  调查: 检查类型定义是否正确，可能存在属性访问权限问题。"
+            },
+            {
+                NXC999,
+                "[框架·NXC999] 未知框架错误。\n" +
+                "  详情: {0}\n" +
+                "  建议: 这是一个未预期的框架内部错误，请联系框架维护者。"
             }
         };
 
@@ -207,6 +234,27 @@ namespace NexusContract.Abstractions.Exceptions
                 NXC403,
                 "[Hardware·NXC403] Hardware Security Module (HSM) quota exceeded (concurrent signing limit reached).\n" +
                 "  Recommendation: Reduce concurrency or request additional HSM instances."
+            },
+            {
+                NXC501,
+                "[Framework·NXC501] Expression tree compilation failed.\n" +
+                "  Investigation: Check if contract type supports code generation, may need to simplify type structure."
+            },
+            {
+                NXC502,
+                "[Framework·NXC502] Type conversion failed.\n" +
+                "  Investigation: Check if property types match expectations, possible type incompatibility."
+            },
+            {
+                NXC503,
+                "[Framework·NXC503] Reflection operation failed.\n" +
+                "  Investigation: Check type definition correctness, possible property access permission issues."
+            },
+            {
+                NXC999,
+                "[Framework·NXC999] Unknown framework error.\n" +
+                "  Details: {0}\n" +
+                "  Recommendation: This is an unexpected framework internal error, please contact framework maintainers."
             }
         };
 
@@ -285,6 +333,8 @@ namespace NexusContract.Abstractions.Exceptions
                 NXC401 => "ERROR",                                            // HSM 超时
                 NXC402 => "CRITICAL",                                         // HSM 不可用
                 NXC403 => "WARNING",                                          // HSM 配额
+                NXC501 or NXC502 or NXC503 => "ERROR",                        // 框架内部错误
+                NXC999 => "CRITICAL",                                         // 未知框架错误
                 _ => "UNKNOWN"
             };
         }

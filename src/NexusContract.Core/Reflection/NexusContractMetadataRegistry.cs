@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -172,7 +173,8 @@ namespace NexusContract.Core.Reflection
                     report.Add(new ContractDiagnostic(
                         contractName,
                         "NXC999",
-                        $"[Critical] 扫描失败。原因: {msg}\n{ex.StackTrace}",
+                        NexusContract.Abstractions.Exceptions.ContractDiagnosticRegistry.Format(
+                            "NXC999", new CultureInfo("zh-CN"), msg ?? "Unknown error"),
                         DiagnosticSeverity.Critical,
                         propertyName: null,
                         propertyPath: null,
@@ -264,10 +266,23 @@ namespace NexusContract.Core.Reflection
                     var auditResult = ContractAuditor.AuditProperty(prop, fieldAttr, currentDepth: 1);
                     properties.Add(new PropertyMetadata(prop, fieldAttr, auditResult));
 
+                    System.Diagnostics.Debug.WriteLine($"[Audit] {type.Name}.{prop.Name}:");
+                    System.Diagnostics.Debug.WriteLine($"  - Type: {prop.PropertyType.Name}");
+                    System.Diagnostics.Debug.WriteLine($"  - ApiField.Name: {fieldAttr.Name ?? "<null>"}");
+                    System.Diagnostics.Debug.WriteLine($"  - IsEncrypted: {fieldAttr.IsEncrypted}");
+                    System.Diagnostics.Debug.WriteLine($"  - IsComplexType: {auditResult.IsComplexType}");
+                    System.Diagnostics.Debug.WriteLine($"  - IsEncryptedWithoutName: {auditResult.IsEncryptedWithoutName}");
+                    System.Diagnostics.Debug.WriteLine($"  - IsComplexWithoutName: {auditResult.IsComplexWithoutName}");
+
                     // Only include safe properties in projector
                     if (!auditResult.IsEncryptedWithoutName && !auditResult.IsComplexWithoutName)
                     {
+                        System.Diagnostics.Debug.WriteLine($"  ✅ INCLUDED in projector");
                         auditedProps.Add(auditResult);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"  ❌ EXCLUDED from projector (EncryptedWithoutName={auditResult.IsEncryptedWithoutName}, ComplexWithoutName={auditResult.IsComplexWithoutName})");
                     }
                 }
                 catch (Exception ex)
@@ -294,7 +309,13 @@ namespace NexusContract.Core.Reflection
             {
                 try
                 {
+                    System.Diagnostics.Debug.WriteLine($"[BuildMetadata] Building projector for {contractName} with {auditedProps.Count} audited properties");
+                    foreach (var ap in auditedProps)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"  - {ap.PropertyInfo.Name} ({ap.PropertyInfo.PropertyType.Name}): Name={ap.ApiField.Name ?? "<null>"}");
+                    }
                     projector = BuildProjector(type, auditedProps.ToArray());
+                    System.Diagnostics.Debug.WriteLine($"[BuildMetadata] Projector built: {(projector != null ? "SUCCESS" : "FAILED")}");
 
                     if (warmup && projector != null)
                     {
@@ -417,8 +438,9 @@ namespace NexusContract.Core.Reflection
                 var apiField = audit.ApiField;
 
                 // 判断字段名：优先使用显式 Name，否则调用 NamingPolicy.ConvertName
+                // 注意：只有当 Name 被显式指定（非 null 且非空）时才使用，否则使用命名策略
                 Expression keyExpr;
-                if (!string.IsNullOrWhiteSpace(apiField.Name))
+                if (!string.IsNullOrEmpty(apiField.Name))
                 {
                     keyExpr = Expression.Constant(apiField.Name);
                 }
@@ -542,8 +564,9 @@ namespace NexusContract.Core.Reflection
                 var apiField = audit.ApiField;
 
                 // 确定字段名：优先使用显式Name，否则调用NamingPolicy
+                // 注意：只有当 Name 被显式指定（非 null 且非空）时才使用，否则使用命名策略
                 Expression keyExpr;
-                if (!string.IsNullOrWhiteSpace(apiField.Name))
+                if (!string.IsNullOrEmpty(apiField.Name))
                 {
                     keyExpr = Expression.Constant(apiField.Name);
                 }
