@@ -76,15 +76,28 @@ namespace NexusContract.Core.Reflection
 
         /// <summary>
         /// 获取契约的元数据（如果不存在则触发"冷冻"流程）
-        /// 懒加载模式：fail-fast，任何验证失败立即抛异常
+        /// 懒加载模式：收集所有错误后统一抛出异常，提供完整的诊断信息
         /// </summary>
         public ContractMetadata GetMetadata(Type type)
         {
             return _cache.GetOrAdd(type, t =>
             {
-                // Fail-fast mode: 使用 ValidateFailFast，直接抛异常
-                ContractValidator.ValidateFailFast(t);
-                return BuildMetadata(t, warmup: false, aggregateErrors: false, errors: null);
+                // 改进模式：先收集所有错误，然后统一报告
+                var report = new DiagnosticReport();
+                ContractValidator.Validate(t, report);
+                
+                var metadata = BuildMetadata(t, warmup: false, report: report);
+                
+                // 如果有错误，抛出带完整诊断信息的异常
+                if (report.HasErrors)
+                {
+                    throw new InvalidOperationException(
+                        $"契约 {t.Name} 验证失败，发现 {report.Diagnostics.Count} 个问题：\n" +
+                        string.Join("\n", report.Diagnostics.Select(d => $"  [{d.Severity}] {d.ErrorCode}: {d.Message.Split('\n')[0]}"))
+                    );
+                }
+                
+                return metadata;
             });
         }
 
@@ -95,8 +108,8 @@ namespace NexusContract.Core.Reflection
         /// 1. 返回结构化的 DiagnosticReport，而非简单的 List&lt;string&gt;
         /// 2. 使用 Validate(Type, DiagnosticReport) 收集所有错误，而非遇到第一个错误就停止
         /// 3. 即使某个契约有错误，仍继续扫描其他契约
-        /// 4. 区分"致命错误"（阻断缓存）和"普通错误"（记录但继续）
-        /// 5. 如果没有任何 Error/Critical，则尝试构建并缓存元数据
+        /// 4. 收集每个契约的所有问题后再决定是否构建元数据
+        /// 5. 最后统一报告所有问题，对开发友好
         /// </summary>
         public DiagnosticReport Preload(IEnumerable<Type> types, bool warmup = false)
         {
@@ -116,27 +129,30 @@ namespace NexusContract.Core.Reflection
                     // 1. 执行全量诊断扫描
                     ContractValidator.Validate(type, report);
 
-                    // 2. 如果没有任何 Error/Critical，则尝试构建并缓存元数据
-                    if (!report.HasErrors)
+                    // 2. 构建元数据（即使有错误也尝试构建，收集所有问题）
+                    try
                     {
-                        try
+                        var metadata = BuildMetadata(type, warmup, report);
+                        
+                        // 3. 只有在没有错误时才缓存
+                        if (!report.HasErrors)
                         {
-                            GetMetadata(type); // 内部会执行 BuildMetadata 并缓存
+                            _cache.TryAdd(type, metadata);
                             report.IncrementSuccessCount();
                         }
-                        catch (Exception ex)
-                        {
-                            // 捕获构建期意外错误（如表达式树编译失败）
-                            report.Add(new ContractDiagnostic(
-                                contractName,
-                                "NXC_GENERIC",
-                                $"元数据构建失败: {ex.Message}",
-                                DiagnosticSeverity.Critical,
-                                propertyName: null,
-                                propertyPath: null,
-                                ex.Message
-                            ));
-                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // 捕获构建期意外错误（如表达式树编译失败）
+                        report.Add(new ContractDiagnostic(
+                            contractName,
+                            "NXC_GENERIC",
+                            $"元数据构建失败: {ex.Message}",
+                            DiagnosticSeverity.Critical,
+                            propertyName: null,
+                            propertyPath: null,
+                            ex.Message
+                        ));
                     }
                 }
                 catch (Exception ex)
@@ -167,220 +183,40 @@ namespace NexusContract.Core.Reflection
         /// 2. 即使 Auditor 失败，仍尝试编译 Projector/Hydrator
         /// 3. 返回 null 表示完全失败，否则返回部分元数据
         /// </summary>
-        private ContractMetadata? BuildMetadataWithReport(
-            Type type,
-            bool warmup,
-            List<ContractDiagnostic> diagnostics)
+        /// <summary>
+        /// 单路径流水线：验证 → 审计 → 编译（三段式）
+        /// </summary>
+        /// <param name="type">契约类型</param>
+        /// <param name="warmup">是否预热投影器</param>
+        /// <param name="report">诊断报告（收集所有错误和警告）</param>
+        private ContractMetadata BuildMetadata(Type type, bool warmup, DiagnosticReport report)
         {
             string contractName = type.FullName ?? type.Name ?? "Unknown";
-
+            
+            // ========== 阶段 1：入境检查（Validation）==========
+            // Validator 已在外部调用，这里直接获取元数据
             var opAttr = type.GetCustomAttribute<ApiOperationAttribute>();
             if (opAttr == null)
             {
-                diagnostics.Add(ContractDiagnostic.Create(
+                // 验证器应该已经捕获此问题，这里作为防御性检查
+                report.Add(ContractDiagnostic.Create(
                     contractName,
                     ContractDiagnosticRegistry.NXC101,
                     propertyName: null,
                     propertyPath: null,
                     type.Name ?? "Unknown"
                 ));
-                return null;
             }
 
             var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
             if (props.Length == 0)
             {
-                diagnostics.Add(new ContractDiagnostic(
+                report.Add(new ContractDiagnostic(
                     contractName,
                     "NXC108",
                     $"契约类 {type.Name} 至少需要定义一个公共属性。",
                     DiagnosticSeverity.Critical
                 ));
-                return null;
-            }
-
-            var properties = new List<PropertyMetadata>();
-            var auditedProps = new List<PropertyAuditResult>();
-
-            foreach (var prop in props)
-            {
-                if (!prop.CanRead || !prop.CanWrite)
-                {
-                    diagnostics.Add(new ContractDiagnostic(
-                        contractName,
-                        "NXC109",
-                        $"属性 {type.Name}.{prop.Name} 需要同时具有 get 与 set。",
-                        DiagnosticSeverity.Error,
-                        propertyName: prop.Name
-                    ));
-                    continue;
-                }
-
-                var fieldAttr = prop.GetCustomAttribute<ApiFieldAttribute>();
-                if (fieldAttr == null) continue;
-
-                try
-                {
-                    var auditResult = ContractAuditor.AuditProperty(prop, fieldAttr, currentDepth: 1);
-                    properties.Add(new PropertyMetadata(prop, fieldAttr, auditResult));
-
-                    if (!auditResult.IsEncryptedWithoutName && !auditResult.IsComplexWithoutName)
-                    {
-                        auditedProps.Add(auditResult);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    diagnostics.Add(new ContractDiagnostic(
-                        contractName,
-                        "NXC110",
-                        $"审计属性 {type.Name}.{prop.Name} 失败: {ex.Message}",
-                        DiagnosticSeverity.Error,
-                        propertyName: prop.Name,
-                        propertyPath: null,
-                        ex.Message
-                    ));
-                }
-            }
-
-            Func<object, Abstractions.Policies.INamingPolicy, Abstractions.Security.IEncryptor?, Dictionary<string, object>>? projector = null;
-            Func<IDictionary<string, object>, Abstractions.Policies.INamingPolicy, Abstractions.Security.IDecryptor?, object>? hydrator = null;
-
-            try
-            {
-                projector = BuildProjector(type, auditedProps.ToArray());
-
-                if (warmup && projector != null)
-                {
-                    try
-                    {
-                        object? instance = Activator.CreateInstance(type);
-                        var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
-                        if (instance != null) projector(instance, dummyNaming, null);
-                    }
-                    catch (Exception ex)
-                    {
-                        diagnostics.Add(new ContractDiagnostic(
-                            contractName,
-                            "NXC111",
-                            $"预热投影器失败: {ex.Message}",
-                            DiagnosticSeverity.Warning,
-                            propertyName: null,
-                            propertyPath: null,
-                            ex.Message
-                        ));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                diagnostics.Add(new ContractDiagnostic(
-                    contractName,
-                    "NXC112",
-                    $"生成投影器失败: {ex.Message}",
-                    DiagnosticSeverity.Error,
-                    propertyName: null,
-                    propertyPath: null,
-                    ex.Message
-                ));
-            }
-
-            try
-            {
-                hydrator = BuildHydrator(type, auditedProps.ToArray());
-
-                if (warmup && hydrator != null)
-                {
-                    try
-                    {
-                        var testDict = new Dictionary<string, object>();
-                        var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
-                        hydrator(testDict, dummyNaming, null);
-                    }
-                    catch (Exception ex)
-                    {
-                        diagnostics.Add(new ContractDiagnostic(
-                            contractName,
-                            "NXC113",
-                            $"预热回填器失败: {ex.Message}",
-                            DiagnosticSeverity.Warning,
-                            propertyName: null,
-                            propertyPath: null,
-                            ex.Message
-                        ));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                diagnostics.Add(new ContractDiagnostic(
-                    contractName,
-                    "NXC114",
-                    $"生成回填器失败: {ex.Message}",
-                    DiagnosticSeverity.Warning,
-                    propertyName: null,
-                    propertyPath: null,
-                    ex.Message
-                ));
-            }
-
-            return new ContractMetadata(type, opAttr, properties.AsReadOnly(), projector, hydrator);
-        }
-
-        /// <summary>
-        /// 单路径流水线：验证 → 审计 → 编译（三段式）
-        /// </summary>
-        /// <param name="type">契约类型</param>
-        /// <param name="warmup">是否预热投影器</param>
-        /// <param name="aggregateErrors">是否聚合错误（true=收集错误, false=立即抛异常）</param>
-        /// <param name="errors">错误收集器（仅在 aggregateErrors=true 时使用）</param>
-        private ContractMetadata BuildMetadata(Type type, bool warmup, bool aggregateErrors, List<string>? errors)
-        {
-            // ========== 阶段 1：入境检查（Validation）==========
-            try
-            {
-                ContractValidator.ValidateFailFast(type);
-            }
-            catch (Exception ex)
-            {
-                string? msg = ex is TargetInvocationException ? ex.InnerException?.Message : ex.Message;
-                if (aggregateErrors && errors != null)
-                {
-                    errors.Add($"[Validator] {type.FullName}: {msg}");
-                    // Continue to collect more errors
-                }
-                else
-                {
-                    throw; // Fail-fast mode
-                }
-            }
-
-            var opAttr = type.GetCustomAttribute<ApiOperationAttribute>();
-            if (opAttr == null)
-            {
-                string err = $"[Type Error] {type.FullName}: 契约类必须标记 [ApiOperation]。";
-                if (aggregateErrors && errors != null)
-                {
-                    errors.Add(err);
-                }
-                else
-                {
-                    throw new InvalidOperationException(err);
-                }
-            }
-
-            var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-            if (props.Length == 0)
-            {
-                string err = $"[Type Error] {type.FullName}: 契约类至少需要定义一个公共属性。";
-                if (aggregateErrors && errors != null)
-                {
-                    errors.Add(err);
-                }
-                else
-                {
-                    throw new InvalidOperationException(err);
-                }
             }
 
             // ========== 阶段 2：深度审计（Auditing）==========
@@ -392,15 +228,15 @@ namespace NexusContract.Core.Reflection
                 // Validate getter/setter completeness
                 if (!prop.CanRead || !prop.CanWrite)
                 {
-                    string err = $"[Property Error] {type.FullName}.{prop.Name}: 需要同时具有 get 与 set。";
-                    if (aggregateErrors && errors != null)
-                    {
-                        errors.Add(err);
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException(err);
-                    }
+                    report.Add(new ContractDiagnostic(
+                        contractName,
+                        "NXC109",
+                        $"属性 {type.Name}.{prop.Name} 需要同时具有 get 与 set。",
+                        DiagnosticSeverity.Error,
+                        propertyName: prop.Name,
+                        propertyPath: prop.Name
+                    ));
+                    continue; // 继续检查其他属性
                 }
 
                 var fieldAttr = prop.GetCustomAttribute<ApiFieldAttribute>();
@@ -420,15 +256,16 @@ namespace NexusContract.Core.Reflection
                 }
                 catch (Exception ex)
                 {
-                    string err = $"[Audit Error] {type.FullName}.{prop.Name}: {ex.GetType().Name} {ex.Message}";
-                    if (aggregateErrors && errors != null)
-                    {
-                        errors.Add(err);
-                    }
-                    else
-                    {
-                        throw;
-                    }
+                    report.Add(new ContractDiagnostic(
+                        contractName,
+                        "NXC110",
+                        $"审计属性 {type.Name}.{prop.Name} 失败: {ex.Message}",
+                        DiagnosticSeverity.Error,
+                        propertyName: prop.Name,
+                        propertyPath: prop.Name,
+                        ex.Message
+                    ));
+                    // 继续检查其他属性
                 }
             }
 
@@ -436,74 +273,88 @@ namespace NexusContract.Core.Reflection
             Func<object, Abstractions.Policies.INamingPolicy, Abstractions.Security.IEncryptor?, Dictionary<string, object>>? projector = null;
             Func<IDictionary<string, object>, Abstractions.Policies.INamingPolicy, Abstractions.Security.IDecryptor?, object>? hydrator = null;
 
-            try
+            // 仅在没有致命错误时才尝试构建投影器和回填器
+            if (!report.HasCriticalErrors)
             {
-                projector = BuildProjector(type, auditedProps.ToArray());
-
-                if (warmup && projector != null)
+                try
                 {
-                    try
+                    projector = BuildProjector(type, auditedProps.ToArray());
+
+                    if (warmup && projector != null)
                     {
-                        object? instance = Activator.CreateInstance(type);
-                        // 需要 dummy 服务来测试
-                        var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
-                        if (instance != null) projector(instance, dummyNaming, null);
-                    }
-                    catch (Exception ex)
-                    {
-                        string err = $"[Warmup Error] {type.FullName}: 预热运行失败：{ex.GetType().Name} {ex.Message}";
-                        if (aggregateErrors && errors != null)
+                        try
                         {
-                            errors.Add(err);
+                            object? instance = Activator.CreateInstance(type);
+                            var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
+                            if (instance != null) projector(instance, dummyNaming, null);
                         }
-                        // Don't throw in warmup failures
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                string err = $"[Compile Error] {type.FullName}: 生成投影器失败：{ex.GetType().Name} {ex.Message}";
-                if (aggregateErrors && errors != null)
-                {
-                    errors.Add(err);
-                }
-                else
-                {
-                    throw;
-                }
-            }
-
-            // 构建 Hydrator（回填委托）
-            try
-            {
-                hydrator = BuildHydrator(type, auditedProps.ToArray());
-
-                if (warmup && hydrator != null)
-                {
-                    try
-                    {
-                        var testDict = new Dictionary<string, object>();
-                        var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
-                        hydrator(testDict, dummyNaming, null);
-                    }
-                    catch (Exception ex)
-                    {
-                        string err = $"[Hydrator Warmup Error] {type.FullName}: 预热运行失败：{ex.GetType().Name} {ex.Message}";
-                        if (aggregateErrors && errors != null)
+                        catch (Exception ex)
                         {
-                            errors.Add(err);
+                            report.Add(new ContractDiagnostic(
+                                contractName,
+                                "NXC111",
+                                $"预热投影器失败: {ex.Message}",
+                                DiagnosticSeverity.Warning,
+                                propertyName: null,
+                                propertyPath: null,
+                                ex.Message
+                            ));
                         }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                string err = $"[Hydrator Compile Error] {type.FullName}: 生成回填器失败：{ex.GetType().Name} {ex.Message}";
-                if (aggregateErrors && errors != null)
+                catch (Exception ex)
                 {
-                    errors.Add(err);
+                    report.Add(new ContractDiagnostic(
+                        contractName,
+                        "NXC112",
+                        $"生成投影器失败: {ex.Message}",
+                        DiagnosticSeverity.Error,
+                        propertyName: null,
+                        propertyPath: null,
+                        ex.Message
+                    ));
                 }
-                // Hydrator 失败不应阻止元数据创建，可以 fallback 到反射
+
+                // 构建 Hydrator（回填委托）
+                try
+                {
+                    hydrator = BuildHydrator(type, auditedProps.ToArray());
+
+                    if (warmup && hydrator != null)
+                    {
+                        try
+                        {
+                            var testDict = new Dictionary<string, object>();
+                            var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
+                            hydrator(testDict, dummyNaming, null);
+                        }
+                        catch (Exception ex)
+                        {
+                            report.Add(new ContractDiagnostic(
+                                contractName,
+                                "NXC113",
+                                $"预热回填器失败: {ex.Message}",
+                                DiagnosticSeverity.Warning,
+                                propertyName: null,
+                                propertyPath: null,
+                                ex.Message
+                            ));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    report.Add(new ContractDiagnostic(
+                        contractName,
+                        "NXC114",
+                        $"生成回填器失败: {ex.Message}",
+                        DiagnosticSeverity.Warning,
+                        propertyName: null,
+                        propertyPath: null,
+                        ex.Message
+                    ));
+                    // Hydrator 失败不应阻止元数据创建，可以 fallback 到反射
+                }
             }
 
             // 返回不可变对象（即使有错误也返回部分元数据，让调用方决定如何处理）
