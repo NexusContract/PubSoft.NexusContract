@@ -221,4 +221,4 @@ MIT License - See [LICENSE](./LICENSE) for details.
 
 **Maintainer:** NexusContract  
 **Project Homepage:** https://github.com/NexusContract/PubSoft.NexusContract  
-**NuGet Profile:** https://www.nuget.org/profiles/NexusContract
+**NuGet Profile:** https://www.nuget.org/profiles/pubsoft

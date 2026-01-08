@@ -237,4 +237,4 @@ MIT License - 详见 [LICENSE](./LICENSE)
 
 **维护者:** NexusContract  
 **项目主页:** https://github.com/NexusContract/PubSoft.NexusContract  
-**NuGet 主页:** https://www.nuget.org/profiles/NexusContract
+**NuGet 主页:** https://www.nuget.org/profiles/pubsoft

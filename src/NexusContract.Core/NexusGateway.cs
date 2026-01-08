@@ -99,7 +99,7 @@ namespace NexusContract.Core
 
                 // 1. 验证契约（缓存后零开销）
                 ContractMetadata metadata = NexusContractMetadataRegistry.Instance.GetMetadata(requestType);
-                string? operationId = metadata.Operation?.Operation;
+                string? operationId = metadata.Operation?.OperationId;
 
                 // 2. 投影请求
                 IDictionary<string, object> projectedRequest = _projectionEngine.Project<object>(request);

@@ -58,8 +58,8 @@ namespace NexusContract.Core.Reflection
                 return;
             }
 
-            // 2. NXC102: Operation 标识不能为空
-            if (string.IsNullOrWhiteSpace(opAttr.Operation))
+            // 2. NXC102: OperationId 标识不能为空
+            if (string.IsNullOrWhiteSpace(opAttr.OperationId))
             {
                 report.Add(ContractDiagnostic.Create(contractName, "NXC102", contextArgs: contractName));
             }
@@ -69,7 +69,7 @@ namespace NexusContract.Core.Reflection
             if (opAttr.Interaction == InteractionKind.OneWay && responseType != typeof(EmptyResponse))
             {
                 report.Add(ContractDiagnostic.Create(contractName, "NXC103", 
-                    contextArgs: new object[] { opAttr.Operation, responseType?.Name ?? "null" }));
+                    contextArgs: new object[] { opAttr.OperationId, responseType?.Name ?? "null" }));
             }
 
             // 4. 开启递归路径探测
@@ -96,8 +96,8 @@ namespace NexusContract.Core.Reflection
                     contractType.Name ?? "Unknown"
                 );
 
-            // NXC102: Operation 标识不能为空
-            if (string.IsNullOrWhiteSpace(opAttr.Operation))
+            // NXC102: OperationId 标识不能为空
+            if (string.IsNullOrWhiteSpace(opAttr.OperationId))
                 throw new ContractIncompleteException(
                     contractName,
                     ContractDiagnosticRegistry.NXC102,
@@ -110,7 +110,7 @@ namespace NexusContract.Core.Reflection
                 throw new ContractIncompleteException(
                     contractName,
                     ContractDiagnosticRegistry.NXC103,
-                    opAttr.Operation,
+                    opAttr.OperationId,
                     responseType?.Name ?? "null"
                 );
 

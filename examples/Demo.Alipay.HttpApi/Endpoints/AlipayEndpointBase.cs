@@ -72,7 +72,7 @@ namespace Demo.Alipay.HttpApi.Endpoints
             // 转换路由：alipay.trade.create → trade/create
             // 支付宝Contract中定义的是method参数（如alipay.trade.create）
             // 需要转换为REST风格路由（如 /trade/create）
-            string methodName = metadata.Operation.Operation;
+            string methodName = metadata.Operation.OperationId;
             string route = methodName.StartsWith("alipay.", StringComparison.OrdinalIgnoreCase)
                 ? methodName.Substring("alipay.".Length).Replace('.', '/')
                 : methodName.Replace('.', '/');

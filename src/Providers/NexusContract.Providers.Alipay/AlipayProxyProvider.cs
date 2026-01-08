@@ -105,7 +105,7 @@ namespace NexusContract.Providers.Alipay
             }
 
             // 2. 构建请求 URI
-            Uri requestUri = BuildRequestUri(metadata.Operation.Operation);
+            Uri requestUri = BuildRequestUri(metadata.Operation.OperationId);
 
             // 3. 序列化请求体
             string jsonBody = JsonSerializer.Serialize(request, requestType, _jsonOptions);

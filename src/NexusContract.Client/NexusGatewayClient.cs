@@ -66,7 +66,7 @@ namespace NexusContract.Client
                     ?? throw new InvalidOperationException($"[{requestType.Name}] missing [ApiOperation] attribute");
 
                 // 2. 构建请求 URL（零拷贝倾向）
-                var requestUri = new Uri(_baseUri, operation.Operation);
+                var requestUri = new Uri(_baseUri, operation.OperationId);
 
                 // 3. 序列化请求体（利用 .NET 10 的 StringContent.Create）
                 using var content = JsonContent.Create(
