@@ -41,48 +41,65 @@ app.UseFastEndpoints(config =>
 // ==================== 步骤4：测试端点 ====================
 app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
 
-// ==================== 步骤5：启动期契约体检示例 ====================
+// ==================== 步骤5：启动期契约健康检查（Fail-Fast + 全量诊断）====================
 // 【决策 A-307】无损全景扫描：启动期批量预加载并输出完整诊断报告
 Console.WriteLine("========================================");
-Console.WriteLine("NexusContract 启动期契约体检");
+Console.WriteLine("NexusContract 启动期契约健康检查");
 Console.WriteLine("========================================");
 
 try
 {
-    var types = AppDomain.CurrentDomain.GetAssemblies()
-        .SelectMany(a =>
-        {
-            try { return a.GetTypes(); } catch { return Array.Empty<Type>(); }
-        })
-        .Where(t => t.IsClass && !t.IsAbstract && t.GetCustomAttributes(typeof(ApiOperationAttribute), inherit: false).Any())
-        .ToArray();
+    // ✅ 新方式：使用 ContractStartupHealthCheck（一次性全量诊断）
+    var report = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.Run(
+        assemblies: new[] { typeof(Program).Assembly },
+        warmup: true,           // 预热投影器（推荐生产启用）
+        throwOnError: true      // 发现错误时抛出 ContractIncompleteException（Fail-Fast）
+    );
 
-    Console.WriteLine($"扫描到 {types.Length} 个契约类型，开始体检...\n");
-
-    var report = NexusContractMetadataRegistry.Instance.Preload(types, warmup: true);
-
-    // 1. 打印人类可读的报告（带颜色）
-    report.PrintToConsole(includeDetails: true);
-
-    // 2. 可选：序列化为 JSON（便于 CI/CD 集成）
-    string json = JsonSerializer.Serialize(report.Diagnostics, new JsonSerializerOptions { WriteIndented = true });
-    Console.WriteLine("\n[JSON 诊断输出] (可用于 CI/CD):");
-    Console.WriteLine(json);
-
-    // 3. 检查致命错误
-    if (report.HasCriticalErrors)
+    // 如果没有抛出异常，说明所有契约都通过验证
+    Console.WriteLine($"\n✅ 契约健康检查通过：{report.SuccessCount} 个契约已验证");
+    
+    // 可选：输出 JSON 报告（用于 CI/CD 集成）
+    if (builder.Environment.IsDevelopment())
     {
-        Console.Error.WriteLine("\n❌ 检测到致命的契约错误，系统即将中止启动。");
-        Console.Error.WriteLine("请修复以上 [Critical] 或 [Error] 标记的问题后重试。");
-        Environment.Exit(1);
+        var jsonReport = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.GenerateJsonReport(
+            report, 
+            appId: "Demo.Alipay.HttpApi",
+            environment: builder.Environment.EnvironmentName
+        );
+        Console.WriteLine("\n[JSON 诊断报告]:");
+        Console.WriteLine(jsonReport);
     }
 
-    Console.WriteLine("\n✅ 所有契约均已通过体检，系统启动成功。");
     Console.WriteLine("========================================\n");
+}
+catch (NexusContract.Core.Exceptions.ContractIncompleteException ex)
+{
+    // ✅ 结构化异常处理
+    Console.Error.WriteLine($"\n❌ 契约验证失败：");
+    Console.Error.WriteLine($"   失败契约数：{ex.FailedContractCount}");
+    Console.Error.WriteLine($"   错误总数：{ex.ErrorCount}（{ex.CriticalCount} 个致命错误）");
+    Console.Error.WriteLine();
+    
+    // 输出详细报告
+    ex.Report.PrintToConsole(includeDetails: true);
+    
+    // 保存 JSON 报告
+    var jsonReport = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.GenerateJsonReport(
+        ex.Report,
+        appId: "Demo.Alipay.HttpApi",
+        environment: builder.Environment.EnvironmentName
+    );
+    System.IO.File.WriteAllText("contract-errors.json", jsonReport);
+    Console.Error.WriteLine("\n📄 详细报告已保存到: contract-errors.json");
+    
+    // 阻断启动
+    Console.Error.WriteLine("\n❌ 系统启动已阻断，请修复上述错误后重试。");
+    Environment.Exit(1);
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"\n❌ Preload 执行失败: {ex.Message}");
+    Console.Error.WriteLine($"\n❌ 启动检查失败: {ex.Message}");
     Console.Error.WriteLine(ex.StackTrace);
     Environment.Exit(2);
 }

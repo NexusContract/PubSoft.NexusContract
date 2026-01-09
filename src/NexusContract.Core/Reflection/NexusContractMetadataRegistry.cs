@@ -77,24 +77,24 @@ namespace NexusContract.Core.Reflection
 
         /// <summary>
         /// 获取契约的元数据（如果不存在则触发"冷冻"流程）
-        /// 懒加载模式：收集所有错误后统一抛出异常，提供完整的诊断信息
+        /// 懒加载模式：收集所有错误后统一抛出结构化异常，提供完整的诊断信息
         /// </summary>
         public ContractMetadata GetMetadata(Type type)
         {
             return _cache.GetOrAdd(type, t =>
             {
-                // 改进模式：先收集所有错误，然后统一报告
+                // 使用独立 report，避免污染全局状态
                 var report = new DiagnosticReport();
                 ContractValidator.Validate(t, report);
                 
                 var metadata = BuildMetadata(t, warmup: false, report: report);
                 
-                // 如果有错误，抛出带完整诊断信息的异常
+                // 如果有错误，抛出结构化异常（而非 InvalidOperationException）
                 if (report.HasErrors)
                 {
-                    throw new InvalidOperationException(
-                        $"契约 {t.Name} 验证失败，发现 {report.Diagnostics.Count} 个问题：\n" +
-                        string.Join("\n", report.Diagnostics.Select(d => $"  [{d.Severity}] {d.ErrorCode}: {d.Message.Split('\n')[0]}"))
+                    throw new Exceptions.ContractIncompleteException(
+                        report,
+                        $"Contract {t.Name} validation failed: {report.Diagnostics.Count(d => d.Severity >= DiagnosticSeverity.Error)} errors found"
                     );
                 }
                 
@@ -125,7 +125,7 @@ namespace NexusContract.Core.Reflection
         {
             if (types == null) throw new ArgumentNullException(nameof(types));
 
-            var report = new DiagnosticReport();
+            var globalReport = new DiagnosticReport();
 
             foreach (var type in types)
             {
@@ -136,25 +136,28 @@ namespace NexusContract.Core.Reflection
 
                     string contractName = type.FullName ?? type.Name ?? "Unknown";
 
-                    // 1. 执行全量诊断扫描
-                    ContractValidator.Validate(type, report);
+                    // ✅ 关键修复：每个契约使用独立的 report，避免全局污染
+                    var perTypeReport = new DiagnosticReport();
 
-                    // 2. 构建元数据（即使有错误也尝试构建，收集所有问题）
+                    // 1. 执行全量诊断扫描（写入 per-type report）
+                    ContractValidator.Validate(type, perTypeReport);
+
+                    // 2. 构建元数据（写入 per-type report）
                     try
                     {
-                        var metadata = BuildMetadata(type, warmup, report, encryptor, decryptor);
+                        var metadata = BuildMetadata(type, warmup, perTypeReport, encryptor, decryptor);
                         
-                        // 3. 只有在没有错误时才缓存
-                        if (!report.HasErrors)
+                        // 3. 缓存判定只依赖该类型的错误状态
+                        if (!perTypeReport.HasErrors)
                         {
                             _cache.TryAdd(type, metadata);
-                            report.IncrementSuccessCount();
+                            globalReport.IncrementSuccessCount();
                         }
                     }
                     catch (Exception ex)
                     {
                         // 捕获构建期意外错误（如表达式树编译失败）
-                        report.Add(new ContractDiagnostic(
+                        perTypeReport.Add(new ContractDiagnostic(
                             contractName,
                             "NXC_GENERIC",
                             $"元数据构建失败: {ex.Message}",
@@ -164,13 +167,16 @@ namespace NexusContract.Core.Reflection
                             ex.Message
                         ));
                     }
+
+                    // 4. 合并 per-type report 到全局报告
+                    globalReport.AddRange(perTypeReport.Diagnostics);
                 }
                 catch (Exception ex)
                 {
                     string contractName = type.FullName ?? type.Name ?? "Unknown";
                     string? msg = ex is TargetInvocationException ? ex.InnerException?.Message : ex.Message;
 
-                    report.Add(new ContractDiagnostic(
+                    globalReport.Add(new ContractDiagnostic(
                         contractName,
                         "NXC999",
                         NexusContract.Abstractions.Exceptions.ContractDiagnosticRegistry.Format(
@@ -183,7 +189,7 @@ namespace NexusContract.Core.Reflection
                 }
             }
 
-            return report;
+            return globalReport;
         }
 
         /// <summary>

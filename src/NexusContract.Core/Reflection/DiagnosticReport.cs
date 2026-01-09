@@ -34,6 +34,16 @@ namespace NexusContract.Core.Reflection
             _diagnostics.AddRange(diagnostics);
         }
 
+        /// <summary>
+        /// 合并另一个报告到当前报告
+        /// </summary>
+        public void Merge(DiagnosticReport other)
+        {
+            if (other == null) throw new ArgumentNullException(nameof(other));
+            _diagnostics.AddRange(other.Diagnostics);
+            SuccessCount += other.SuccessCount;
+        }
+
         public void IncrementSuccessCount()
         {
             SuccessCount++;
