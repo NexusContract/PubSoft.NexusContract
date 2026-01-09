@@ -6,9 +6,9 @@
 
 | Package | Version | Framework | Description |
 |---------|---------|-----------|-------------|
-| [NexusContract.Abstractions](https://www.nuget.org/packages/NexusContract.Abstractions) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Abstractions?style=flat-square) | netstandard2.0 | Core abstraction layer (zero dependencies) |
-| [NexusContract.Core](https://www.nuget.org/packages/NexusContract.Core) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Core?style=flat-square) | .NET 10 | Gateway engine and four-phase pipeline |
-| [NexusContract.Client](https://www.nuget.org/packages/NexusContract.Client) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Client?style=flat-square) | .NET 10 | Client SDK (HTTP communication for BFF/business layer) |
+| [NexusContract.Abstractions](https://www.nuget.org/packages/NexusContract.Abstractions) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Abstractions?style=flat-square) | netstandard2.0 | Constitutional contracts and attributes (zero dependencies) |
+| [NexusContract.Core](https://www.nuget.org/packages/NexusContract.Core) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Core?style=flat-square) | .NET 10 | Gateway engine, four-phase pipeline, and startup diagnostics |
+| [NexusContract.Client](https://www.nuget.org/packages/NexusContract.Client) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Client?style=flat-square) | .NET 10 | HTTP client SDK for BFF/business layer |
 | [NexusContract.Providers.Alipay](https://www.nuget.org/packages/NexusContract.Providers.Alipay) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Providers.Alipay?style=flat-square) | .NET 10 | Alipay provider (OpenAPI v3) |
 
 ## ✨ Features
@@ -43,12 +43,12 @@ All packages include:
 ```
 ┌──────────────────────────────────────────────┐
 │   BFF / Business Layer (Layer 2)             │
-│   └─ Uses: NexusGatewayClient (HTTP calls)    │
+│   └─ NexusGatewayClient (HTTP calls)         │
 └──────────────────────────────────────────────┘
          ↓ HTTP (Client Package)
 ┌──────────────────────────────────────────────┐
 │   HttpApi Layer (Layer 1)                    │
-│   └─ FastEndpoints + Provider               │
+│   └─ FastEndpoints + Provider                │
 └──────────────────────────────────────────────┘
          ↓ Direct Call (Provider Package)
 ┌──────────────────────────────────────────────┐
@@ -78,37 +78,48 @@ OR (Direct Integration - Skip HttpApi)
 
 ```csharp
 using NexusContract.Abstractions;
+using NexusContract.Abstractions.Attributes;
+using NexusContract.Abstractions.Contracts;
 
-[NexusContract(Method = "alipay.trade.query")]
-public sealed class TradeQueryRequest
+[ApiOperation("alipay.trade.query", HttpVerb.POST)]
+public class TradeQueryRequest : IApiRequest<TradeQueryResponse>
 {
-    [ContractProperty(Name = "out_trade_no", Order = 1)]
-    public string? OutTradeNo { get; set; }
+    [ApiField("out_trade_no", IsRequired = false)]
+    public string OutTradeNo { get; set; }
 
-    [ContractProperty(Name = "trade_no", Order = 2)]
-    public string? TradeNo { get; set; }
+    [ApiField("trade_no", IsRequired = false)]
+    public string TradeNo { get; set; }
+}
+
+public class TradeQueryResponse
+{
+    public string TradeNo { get; set; }
+    public string TradeStatus { get; set; }
+    public decimal TotalAmount { get; set; }
 }
 ```
 
 ### 2. Configure Engine (Core + Provider)
 
 ```csharp
-using NexusContract.Core;
+using NexusContract.Core.Diagnostics;
 using NexusContract.Providers.Alipay;
 
-var gateway = new NexusGateway();
-gateway.RegisterProvider(new AlipayProvider(
-    appId: "2021...",
-    merchantPrivateKey: "MII...",
-    alipayPublicKey: "MII..."
-));
-
 // Startup health check (recommended)
-var diagnostics = gateway.PreloadMetadata();
-if (!diagnostics.IsHealthy)
+var report = ContractStartupHealthCheck.Run(
+    assemblies: new[] { typeof(Program).Assembly },
+    warmup: true,           // Pre-warm projectors/hydrators
+    throwOnError: true      // Fail-fast on validation errors
+);
+
+if (!report.HasErrors)
 {
-    foreach (var error in diagnostics.Errors)
-        Console.WriteLine($"❌ {error}");
+    Console.WriteLine($"✅ {report.SuccessCount} contracts validated");
+}
+else
+{
+    // Detailed error reporting
+    report.PrintToConsole(includeDetails: true);
     Environment.Exit(1);
 }
 ```
@@ -121,7 +132,7 @@ if (!diagnostics.IsHealthy)
 // 🎯 Inside HttpApi: Zero-code endpoint, direct Provider call
 public sealed class TradeQueryEndpoint(AlipayProvider provider) 
     : AlipayEndpointBase<TradeQueryRequest>(provider) { }
-// ✅ Route auto-inferred as POST /trade/query
+// ✅ Route auto-inferred as POST /alipay/trade/query
 // ✅ Direct Provider call, no HTTP overhead
 ```
 
@@ -137,7 +148,7 @@ var httpClient = new HttpClient
 };
 var client = new NexusGatewayClient(httpClient, new SnakeCaseNamingPolicy());
 
-// ✅ Sends HTTP request to HttpApi's /trade/query endpoint
+// ✅ Sends HTTP request to HttpApi's /alipay/trade/query endpoint
 // ✅ URL auto-extracted from [ApiOperation]
 var response = await client.SendAsync(
     new TradeQueryRequest { TradeNo = "202501..." }
@@ -153,7 +164,7 @@ using NexusContract.Providers.Alipay;
 var provider = new AlipayProvider(appId, privateKey, publicKey);
 
 // ✅ Direct Alipay OpenAPI call, no HTTP intermediary
-// ✅ Method auto-extracted from [NexusContract]
+// ✅ Method auto-extracted from [ApiOperation]
 var response = await provider.ExecuteAsync(
     new TradeQueryRequest { TradeNo = "202501..." }
 );
@@ -207,7 +218,7 @@ graph TD
 
 ## 🎯 Version Strategy
 
-- `1.0.0-preview.x` - Current preview releases
+- `1.0.0-preview.x` - Current preview releases (latest: 1.0.0-preview.10)
 - `1.0.0-rc.x` - Release candidates
 - `1.0.0` - Stable release (planned)
 

@@ -238,6 +238,28 @@ flowchart TB
 
 ---
 
+## AI 友好性（设计结果，而非目标）
+
+NexusContract 并非一个「AI First」或「为 LLM 设计」的框架。
+
+但由于其具备：
+
+- 显式且单一的契约定义
+- 启动期冻结的元数据模型
+- 强确定性的执行路径
+- 无隐式魔法的架构约束
+
+它天然适合被用于：
+
+- AI 辅助代码生成
+- Tool Calling / Agent 编排
+- 契约级静态分析
+
+这是**架构约束带来的自然结果**，而非设计目标本身。
+
+
+---
+
 ## 📦 NuGet 包说明
 
 | Package | Version | Framework | Description |

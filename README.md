@@ -255,6 +255,23 @@ You may replace it with:
 
 ---
 
+## AI Compatibility (By Design)
+
+NexusContract is not an AI-first framework.
+
+However, its **explicit contracts**, **frozen metadata**, and **deterministic execution model**
+make it naturally compatible with:
+
+- LLM-based code generation
+- Tool calling and agent orchestration
+- Static analysis and contract introspection
+
+This is a *by-product* of strict architectural constraints,
+not an AI-driven design goal.
+
+---
+
+
 ## 📦 NuGet Packages
 
 | Package | Version | Framework | Description |
