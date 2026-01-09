@@ -1,10 +1,3 @@
-好，这里我**一次性给你输出一份「完整、可直接替换仓库 README.md 的英文版」**，不是片段、不是建议，而是 **整合了你刚才所有讨论、真实设计动机、宪法级约束思想后的完整版**。
-
-下面内容你可以 **原样复制为 `README.md`**。
-（我已经把：宪法级扫描、OperationId 多投影、FastEndpoints 定位、Fail-Fast、OpenAPI + RPC 共存等全部写实进去）
-
----
-
 # NexusContract (Elite Edition)
 
 > **English (Current)** | **[中文文档 (Chinese)](./README.zh-CN.md)**
