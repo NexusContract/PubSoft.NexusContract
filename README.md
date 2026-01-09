@@ -2,18 +2,19 @@
 
 > **English (Current)** | **[中文文档 (Chinese)](./README.zh-CN.md)**
 
-**Kernelized Contract Integration (KCI) Framework**
-A high-performance, deterministic, metadata-driven integration framework for payment and third-party systems, built on **.NET Standard 2.0 + .NET 10**.
+**Kernelized Contract Integration (KCI) Framework**  
+A deterministic, startup-validated **contract runtime** for payment and third-party integrations,  
+built on **.NET Standard 2.0 + .NET 10**.
 
-> **“Explicit boundaries over implicit magic.”**
+> **“Explicit boundaries over implicit magic.”**  
 > This is not a slogan — it is the constitutional principle of NexusContract.
 
 All designs in this framework revolve around:
 
-* **Determinism**
-* **Observability**
-* **Architectural Constraints**
-* **Fail-Fast correctness**
+- **Determinism**
+- **Observability**
+- **Architectural Constraints**
+- **Fail-Fast Correctness**
 
 ---
 
@@ -21,40 +22,45 @@ All designs in this framework revolve around:
 
 In real-world payment and third-party integrations:
 
-* OpenAPI, RPC, and undocumented interfaces **coexist**
-* The same business intent maps to **multiple provider operations**
-* A missing encrypted field name is **not a bug — it is a financial incident**
-* Runtime validation is **already too late**
+- OpenAPI, RPC, and undocumented interfaces **coexist**
+- The same business intent maps to **different physical protocols**
+- A missing encrypted field name is **not a bug — it is a financial incident**
+- Runtime validation is **already too late**
 
-Most frameworks treat contracts as **DTOs or configurations**.
+Most frameworks treat contracts as:
 
-**NexusContract treats contracts as a constitution.**
+- DTOs
+- Runtime configurations
+- Flexible mappings
+
+**NexusContract treats contracts as executable system constraints,
+validated before the system is allowed to start.**
 
 ---
 
 ## 🏛️ Core Architecture: From REPR to REPR-P
 
-NexusContract extends the **REPR (Request–Endpoint–Response)** pattern from
+NexusContract extends the **REPR (Request–Endpoint–Response)** pattern from  
 [FastEndpoints](https://fast-endpoints.com/) by introducing **Proxying**, forming the **REPR-P** model.
 
 ### REPR-P Explained
 
-* **R — Request**
-  Strongly-typed business intent
+- **R — Request**  
+  Strongly-typed business intent  
   (`IApiRequest<TResponse>`)
 
-* **E — Endpoint**
-  **Zero-business-code proxy**
+- **E — Endpoint**  
+  Zero-business-code proxy  
   Responsible only for protocol adaptation
 
-* **R — Response**
+- **R — Response**  
   Strongly-typed business result
 
-* **P — Proxy**
-  `NexusGateway`
-  The orchestration core that executes the pipeline and routes calls to Providers
+- **P — Proxy**  
+  `NexusGateway`  
+  The orchestration kernel that executes the pipeline and routes calls to Providers
 
-> Business logic never leaks into transport layers.
+> Business logic never leaks into transport layers.  
 > Transport concerns never pollute contracts.
 
 ---
@@ -63,26 +69,32 @@ NexusContract extends the **REPR (Request–Endpoint–Response)** pattern from
 
 In NexusContract, a contract is **not**:
 
-* a DTO
-* a runtime configuration
-* a flexible mapping definition
+- a DTO
+- a runtime configuration
+- a flexible mapping definition
 
 It is a **constitutional artifact**.
 
 ### What This Means
 
-* ❌ No silent fallback
-* ❌ No runtime guessing
-* ❌ No environment-specific overrides
-* ✅ Either fully compliant — or the service **refuses to start**
+- ❌ No silent fallback
+- ❌ No runtime guessing
+- ❌ No environment-specific overrides
+- ✅ Either fully compliant — or the service **refuses to start**
 
 ### Why So Strict?
 
 Because in payment systems:
 
-* Encrypted fields **must** have explicit names
-* Protocol projections **must** be deterministic
-* Violations must be detected **before traffic exists**
+- Encrypted fields **must** have explicit names
+- Protocol projections **must** be deterministic
+- Violations must be detected **before traffic exists**
+
+In practice, this means:
+
+- Contract validation is part of the application bootstrap phase
+- Violations surface as startup failures, not runtime exceptions
+- There is no supported mechanism to bypass or override contracts
 
 > **All constitutional violations are detected at startup, in one panoramic scan.**
 
@@ -92,23 +104,25 @@ Because in payment systems:
 
 ### 🔒 Constitutional Startup Health Check
 
-* One-time panoramic scan of all contracts
-* Enforces architectural rules (nesting depth, encryption rules, naming)
-* Fails fast **before** the service starts accepting traffic
+- One-time panoramic scan of all contracts
+- Enforces architectural rules (nesting depth, encryption rules, naming)
+- Fails fast **before** the service starts accepting traffic
 
 ### 🧠 Metadata-Driven, Runtime-Frozen
 
-* All metadata is scanned and frozen at startup
-* Zero reflection at runtime
-* Near-zero allocation execution path
+- All metadata is scanned and frozen at startup
+- Zero reflection at runtime
+- Near-zero allocation execution path
 
 ### 🔄 Four-Phase Execution Pipeline
 
 All requests follow the same deterministic flow:
 
 ```
+
 Validate → Project → Execute → Hydrate
-```
+
+````
 
 No shortcuts. No hidden branches.
 
@@ -116,9 +130,9 @@ No shortcuts. No hidden branches.
 
 Every violation has a unique diagnostic code:
 
-* Static (startup)
-* Outbound (provider call)
-* Inbound (response hydration)
+- Static (startup)
+- Outbound (provider call)
+- Inbound (response hydration)
 
 Designed for **rapid localization**, not vague logs.
 
@@ -148,7 +162,7 @@ if (report.HasCriticalErrors)
 {
     Environment.Exit(1);
 }
-```
+````
 
 ### Sample Output
 
@@ -169,9 +183,10 @@ if (report.HasCriticalErrors)
 
 ---
 
-## 🎯 OperationId: Intent, Not Endpoint
+## 🎯 OperationId: Business Intent Identifier
 
-`OperationId` represents **business intent**, not a physical route.
+`OperationId` uniquely identifies **one business intent**
+and remains stable across all protocol projections.
 
 ```csharp
 [ApiOperation("alipay.trade.query", HttpVerb.POST)]
@@ -179,23 +194,27 @@ public sealed class TradeQueryRequest
     : IApiRequest<TradeQueryResponse> { }
 ```
 
-###  Contract Routing Model
+### Contract Routing Model
 
-A single NexusContract defines one business operation and is consumed consistently
-across all layers of the system.
+A single NexusContract defines one business operation
+and is consumed consistently across all layers.
 
 Example mapping:
 
-- **BFF**
-  - Exposes: `/api/alipay/v3/trade/query`
+* **BFF**
 
-- **HttpApi**
-  - Proxies: `/api/alipay/v3/trade/query`
+  * Exposes: `/api/alipay/v3/trade/query`
 
-- **Provider**
-  - Calls:
-    - OpenAPI: `/v3/alipay/trade/query`
-    - RPC: `alipay.trade.query`
+* **HttpApi**
+
+  * Proxies: `/api/alipay/v3/trade/query`
+
+* **Provider**
+
+  * Calls:
+
+    * OpenAPI: `/v3/alipay/trade/query`
+    * RPC: `alipay.trade.query`
 
 ---
 
@@ -240,46 +259,39 @@ It is a **preferred HttpApi host implementation**.
 * High performance
 * Strong alignment with REPR
 
-### Important
-
-> **NexusContract does not conceptually depend on FastEndpoints.**
+> NexusContract does not conceptually depend on FastEndpoints.
 
 Only the HttpApi layer does.
 
-You may replace it with:
-
-* ASP.NET Minimal APIs
-* MVC
-* gRPC gateways
-* Custom protocol servers
+This separation ensures NexusContract remains usable
+in environments where FastEndpoints is unavailable or not permitted.
 
 ---
 
-## AI Compatibility (By Design)
+## 🤖 AI Compatibility (By Design)
 
 NexusContract is not an AI-first framework.
 
-However, its **explicit contracts**, **frozen metadata**, and **deterministic execution model**
-make it naturally compatible with:
+However, its explicit contracts, frozen metadata,
+and deterministic execution model make it naturally compatible with:
 
-- LLM-based code generation
-- Tool calling and agent orchestration
-- Static analysis and contract introspection
+* LLM-based code generation
+* Tool calling and agent orchestration
+* Static analysis and contract introspection
 
-This is a *by-product* of strict architectural constraints,
-not an AI-driven design goal.
+AI compatibility is an **emergent property** of strict architectural constraints,
+not a primary design goal.
 
 ---
 
-
 ## 📦 NuGet Packages
 
-| Package | Version | Framework | Description |
-|---------|---------|-----------|-------------|
-| [NexusContract.Abstractions](https://www.nuget.org/packages/NexusContract.Abstractions) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Abstractions?style=flat-square) | netstandard2.0 | Core abstraction layer (zero dependencies) |
-| [NexusContract.Core](https://www.nuget.org/packages/NexusContract.Core) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Core?style=flat-square) | .NET 10 | Gateway engine and four-phase pipeline |
-| [NexusContract.Client](https://www.nuget.org/packages/NexusContract.Client) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Client?style=flat-square) | .NET 10 | Client SDK for BFF/business layer (HTTP communication) |
-| [NexusContract.Providers.Alipay](https://www.nuget.org/packages/NexusContract.Providers.Alipay) | ![NuGet](https://img.shields.io/nuget/v/NexusContract.Providers.Alipay?style=flat-square) | .NET 10 | Alipay provider (OpenAPI v3) |
+| Package                          | Framework      | Description                          |
+| -------------------------------- | -------------- | ------------------------------------ |
+| `NexusContract.Abstractions`     | netstandard2.0 | Core abstractions, zero dependencies |
+| `NexusContract.Core`             | .NET 10        | Gateway kernel & execution pipeline  |
+| `NexusContract.Client`           | .NET 10        | BFF / business HTTP client           |
+| `NexusContract.Providers.Alipay` | .NET 10        | Alipay OpenAPI & RPC provider        |
 
 ---
 
@@ -324,20 +336,26 @@ Typical full pipeline cost: **~120 ns**
 
 ---
 
-## 📚 Documentation
+## 🚫 Non-Goals
 
-* `CONSTITUTION.md` — Architectural rules & violation codes
-* `IMPLEMENTATION.md` — Internal mechanics
-* `CLIENT_SDK_GUIDE.md` — Client usage
-* `PACKAGES.md` — Package overview
+NexusContract does not attempt to:
+
+* Infer missing contract information
+* Provide runtime fallback or auto-correction
+* Act as a general-purpose workflow engine
 
 ---
 
 ## 🧠 Final Summary
 
-> **NexusContract is a constitutional execution kernel that treats every integration as law, not convention.**
+**NexusContract provides a constitutional execution kernel
+for deterministic, multi-protocol integrations,
+where correctness is enforced before traffic is allowed.**
 
+---
 
 ## 📄 License
 
 [MIT License](LICENSE)
+
+```
