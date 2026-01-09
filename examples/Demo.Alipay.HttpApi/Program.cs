@@ -7,6 +7,7 @@ using FastEndpoints;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using NexusContract.Providers.Alipay;
 using NexusContract.Providers.Alipay.ServiceConfiguration;
 using NexusContract.Core.Reflection;

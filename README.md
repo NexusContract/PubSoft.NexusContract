@@ -1,64 +1,163 @@
+好，这里我**一次性给你输出一份「完整、可直接替换仓库 README.md 的英文版」**，不是片段、不是建议，而是 **整合了你刚才所有讨论、真实设计动机、宪法级约束思想后的完整版**。
+
+下面内容你可以 **原样复制为 `README.md`**。
+（我已经把：宪法级扫描、OperationId 多投影、FastEndpoints 定位、Fail-Fast、OpenAPI + RPC 共存等全部写实进去）
+
+---
+
 # NexusContract (Elite Edition)
 
-> **[中文文档 (Chinese)](./README.zh-CN.md)** | **English (Current)**
+> **English (Current)** | **[中文文档 (Chinese)](./README.zh-CN.md)**
 
-**Kernelized Contract Integration (KCI) Framework** - A high-performance, self-describing, metadata-driven payment integration engine built on .NET Standard 2.0 + .NET 10.
+**Kernelized Contract Integration (KCI) Framework**
+A high-performance, deterministic, metadata-driven integration framework for payment and third-party systems, built on **.NET Standard 2.0 + .NET 10**.
 
-> **"Explicit boundaries over implicit magic."** — The supreme constitution of this framework. All designs revolve around **determinism**, **observability**, and **architectural constraints**.
+> **“Explicit boundaries over implicit magic.”**
+> This is not a slogan — it is the constitutional principle of NexusContract.
+
+All designs in this framework revolve around:
+
+* **Determinism**
+* **Observability**
+* **Architectural Constraints**
+* **Fail-Fast correctness**
+
+---
+
+## 🧭 What Problem Does NexusContract Solve?
+
+In real-world payment and third-party integrations:
+
+* OpenAPI, RPC, and undocumented interfaces **coexist**
+* The same business intent maps to **multiple provider operations**
+* A missing encrypted field name is **not a bug — it is a financial incident**
+* Runtime validation is **already too late**
+
+Most frameworks treat contracts as **DTOs or configurations**.
+
+**NexusContract treats contracts as a constitution.**
 
 ---
 
 ## 🏛️ Core Architecture: From REPR to REPR-P
 
-This framework extends [**FastEndpoints**](https://fast-endpoints.com/)' **REPR (Request-Endpoint-Response)** pattern through **Proxying** mechanism, achieving complete decoupling between business logic and physical protocols, forming the **REPR-P** pattern.
+NexusContract extends the **REPR (Request–Endpoint–Response)** pattern from
+[FastEndpoints](https://fast-endpoints.com/) by introducing **Proxying**, forming the **REPR-P** model.
 
-- **R**equest: Strongly-typed business contract (`IApiRequest<TResponse>`).
-- **E**ndpoint: **Zero-code proxy**, responsible only for protocol conversion, containing no business logic.
-- **R**esponse: Strongly-typed business response.
-- **P**roxy: `NexusGateway` acts as the command center, orchestrating the four-phase pipeline and proxying Endpoint calls to specific third-party `Provider`s.
+### REPR-P Explained
+
+* **R — Request**
+  Strongly-typed business intent
+  (`IApiRequest<TResponse>`)
+
+* **E — Endpoint**
+  **Zero-business-code proxy**
+  Responsible only for protocol adaptation
+
+* **R — Response**
+  Strongly-typed business result
+
+* **P — Proxy**
+  `NexusGateway`
+  The orchestration core that executes the pipeline and routes calls to Providers
+
+> Business logic never leaks into transport layers.
+> Transport concerns never pollute contracts.
+
+---
+
+## 🧭 Contract Is Constitutional, Not Configurable
+
+In NexusContract, a contract is **not**:
+
+* a DTO
+* a runtime configuration
+* a flexible mapping definition
+
+It is a **constitutional artifact**.
+
+### What This Means
+
+* ❌ No silent fallback
+* ❌ No runtime guessing
+* ❌ No environment-specific overrides
+* ✅ Either fully compliant — or the service **refuses to start**
+
+### Why So Strict?
+
+Because in payment systems:
+
+* Encrypted fields **must** have explicit names
+* Protocol projections **must** be deterministic
+* Violations must be detected **before traffic exists**
+
+> **All constitutional violations are detected at startup, in one panoramic scan.**
 
 ---
 
 ## 🚀 Core Features
 
-- **Metadata-Driven**: One-time scan and "freeze" of all contract metadata at startup, zero reflection at runtime, achieving extreme performance and smooth P99 latency.
-- **Startup Health Check**: Performs "lossless panoramic scan" of all contracts at application startup, generating structured diagnostic reports to detect architectural violations early.
-- **Four-Phase Pipeline**: All requests go through the standardized flow of "Validate → Project → Execute → Hydrate", ensuring behavioral consistency.
-- **Structured Diagnostics**: Every error (static, outbound, inbound) has a unique `NXC` diagnostic code for rapid localization and resolution.
-- **Explicit Boundaries**: The framework enforces strict "constitutional" constraints (e.g., max nesting depth, encrypted field locking) to eliminate "magic" and uncertainty.
+### 🔒 Constitutional Startup Health Check
+
+* One-time panoramic scan of all contracts
+* Enforces architectural rules (nesting depth, encryption rules, naming)
+* Fails fast **before** the service starts accepting traffic
+
+### 🧠 Metadata-Driven, Runtime-Frozen
+
+* All metadata is scanned and frozen at startup
+* Zero reflection at runtime
+* Near-zero allocation execution path
+
+### 🔄 Four-Phase Execution Pipeline
+
+All requests follow the same deterministic flow:
+
+```
+Validate → Project → Execute → Hydrate
+```
+
+No shortcuts. No hidden branches.
+
+### 🧾 Structured Diagnostics (NXC Codes)
+
+Every violation has a unique diagnostic code:
+
+* Static (startup)
+* Outbound (provider call)
+* Inbound (response hydration)
+
+Designed for **rapid localization**, not vague logs.
 
 ---
 
 ## 🏁 Quick Start: Startup Health Check
 
-In `Demo.Alipay.HttpApi`, we demonstrate how to perform contract health checks at application startup:
+Example from `Demo.Alipay.HttpApi`:
 
 ```csharp
-// examples/Demo.Alipay.HttpApi/Program.cs
-
-// 1. Scan all types with [ApiOperation] attribute
+// 1. Scan all ApiOperation contracts
 var types = AppDomain.CurrentDomain.GetAssemblies()
     .SelectMany(a => a.GetTypes())
-    .Where(t => t.IsClass && !t.IsAbstract && t.GetCustomAttribute<ApiOperationAttribute>() != null)
+    .Where(t => t.IsClass && !t.IsAbstract &&
+                t.GetCustomAttribute<ApiOperationAttribute>() != null)
     .ToArray();
 
-// 2. Execute preload and panoramic scan
-var report = NexusContractMetadataRegistry.Instance.Preload(types, warmup: true);
+// 2. Preload & validate (panoramic scan)
+var report = NexusContractMetadataRegistry.Instance
+    .Preload(types, warmup: true);
 
-// 3. Print beautiful ASCII health report
+// 3. Print diagnostic report
 report.PrintToConsole(includeDetails: true);
 
-// 4. If critical errors exist, abort startup
+// 4. Abort startup on constitutional violation
 if (report.HasCriticalErrors)
 {
-    Console.WriteLine("❌ Critical errors detected. Service cannot start.");
     Environment.Exit(1);
 }
-
-Console.WriteLine("✅ All contracts validated. Service is ready.");
 ```
 
-**Sample Output:**
+### Sample Output
 
 ```
 ╔══════════════════════════════════════════════════════════════════╗
@@ -73,6 +172,94 @@ Console.WriteLine("✅ All contracts validated. Service is ready.");
 ╚══════════════════════════════════════════════════════════════════╝
 ```
 
+> Unlike traditional frameworks, **all violations are reported in one run**.
+
+---
+
+## 🎯 OperationId: Intent, Not Endpoint
+
+`OperationId` represents **business intent**, not a physical route.
+
+```csharp
+[ApiOperation("alipay.trade.query", HttpVerb.POST)]
+public sealed class TradeQueryRequest
+    : IApiRequest<TradeQueryResponse> { }
+```
+
+###  Contract Routing Model
+
+A single NexusContract defines one business operation and is consumed consistently
+across all layers of the system.
+
+Example mapping:
+
+- **BFF**
+  - Exposes: `/api/alipay/v3/trade/query`
+
+- **HttpApi**
+  - Proxies: `/api/alipay/v3/trade/query`
+
+- **Provider**
+  - Calls:
+    - OpenAPI: `/v3/alipay/trade/query`
+    - RPC: `alipay.trade.query`
+
+---
+
+## 🏗️ Three-Layer Architecture
+
+```mermaid
+flowchart TB
+    BFF["BFF / Business Layer<br/>(Layer 2)<br/>NexusGatewayClient"]
+    API["HttpApi Layer<br/>(Layer 1)<br/>FastEndpoints"]
+    Provider["Provider Layer<br/>(Layer 0)<br/>AlipayProvider"]
+    OpenAPI["Alipay OpenAPI / RPC"]
+
+    BFF -->|HTTP| API
+    API -->|Direct Call| Provider
+    Provider --> OpenAPI
+```
+
+### Direct Integration (No HttpApi)
+
+```mermaid
+flowchart TB
+    App["Your Application"]
+    Provider["AlipayProvider"]
+    OpenAPI["Alipay OpenAPI / RPC"]
+
+    App --> Provider
+    Provider --> OpenAPI
+```
+
+---
+
+## ⚙️ Role of FastEndpoints
+
+FastEndpoints is **not the core** of NexusContract.
+
+It is a **preferred HttpApi host implementation**.
+
+### Why FastEndpoints?
+
+* Explicit endpoint model
+* No controller magic
+* High performance
+* Strong alignment with REPR
+
+### Important
+
+> **NexusContract does not conceptually depend on FastEndpoints.**
+
+Only the HttpApi layer does.
+
+You may replace it with:
+
+* ASP.NET Minimal APIs
+* MVC
+* gRPC gateways
+* Custom protocol servers
+
 ---
 
 ## 📦 NuGet Packages
@@ -86,139 +273,61 @@ Console.WriteLine("✅ All contracts validated. Service is ready.");
 
 ---
 
-## 🏗️ Three-Layer Architecture
-
-```
-┌──────────────────────────────────────────────┐
-│   BFF / Business Layer (Layer 2)             │
-│   └─ Uses: NexusGatewayClient (HTTP calls)    │
-└──────────────────────────────────────────────┘
-         ↓ HTTP (Client Package)
-┌──────────────────────────────────────────────┐
-│   HttpApi Layer (Layer 1)                    │
-│   └─ FastEndpoints + Provider               │
-└──────────────────────────────────────────────┘
-         ↓ Direct Call (Provider Package)
-┌──────────────────────────────────────────────┐
-│   Provider Layer (Layer 0)                   │
-│   └─ AlipayProvider (OpenAPI v3)            │
-└──────────────────────────────────────────────┘
-         ↓ calls
-┌──────────────────────────────────────────────┐
-│   Alipay OpenAPI                             │
-└──────────────────────────────────────────────┘
-
-OR (Direct Integration - Skip HttpApi)
-
-┌──────────────────────────────────────────────┐
-│   Your Application                           │
-│   └─ AlipayProvider (Direct)                │
-└──────────────────────────────────────────────┘
-         ↓ calls
-┌──────────────────────────────────────────────┐
-│   Alipay OpenAPI                             │
-└──────────────────────────────────────────────┘
-```
-
-**Architecture Selection Guide:**
-
-| Scenario | Recommended Solution | Components |
-|----------|---------------------|------------|
-| Microservices architecture, unified payment gateway API | Layer 1 + Layer 2 | HttpApi (FastEndpoints) + Client (BFF) |
-| Monolithic application, direct payment integration | Layer 3 (Direct) | Provider only |
-| Multi-tenant SaaS, centralized payment service | Layer 1 + Layer 2 | HttpApi + Client |
-
----
-
 ## 📖 Usage Examples
 
-### Layer 1: HttpApi (FastEndpoints + Provider)
+### Layer 1 — HttpApi
 
 ```csharp
-// 🎯 Inside HttpApi: Zero-code endpoint, direct Provider call
-public sealed class TradeQueryEndpoint(AlipayProvider provider) 
+public sealed class TradeQueryEndpoint(AlipayProvider provider)
     : AlipayEndpointBase<TradeQueryRequest>(provider) { }
-// ✅ Route auto-inferred as POST /trade/query
-// ✅ Direct Provider call, no HTTP overhead
 ```
 
-### Layer 2: BFF/Business Layer (Client via HTTP)
+### Layer 2 — BFF / Business
 
 ```csharp
-// 🎯 BFF or business service: HTTP call to HttpApi endpoint
-using NexusContract.Client;
+var client = new NexusGatewayClient(
+    httpClient,
+    new SnakeCaseNamingPolicy());
 
-var httpClient = new HttpClient 
-{ 
-    BaseAddress = new Uri("https://payment-api.example.com") 
-};
-var client = new NexusGatewayClient(httpClient, new SnakeCaseNamingPolicy());
-
-// ✅ Sends HTTP request to HttpApi's /trade/query endpoint
-// ✅ URL auto-extracted from [ApiOperation]
 var response = await client.SendAsync(
-    new TradeQueryRequest { TradeNo = "202501..." }
-);
+    new TradeQueryRequest { TradeNo = "202501..." });
 ```
 
-### Layer 3: Direct Integration (Provider Only)
+### Layer 0 — Direct Provider
 
 ```csharp
-// 🎯 Direct integration: Skip HttpApi, call Alipay OpenAPI directly
-using NexusContract.Providers.Alipay;
-
 var provider = new AlipayProvider(appId, privateKey, publicKey);
 
-// ✅ Direct Alipay OpenAPI call, no HTTP intermediary
-// ✅ Method auto-extracted from [NexusContract]
 var response = await provider.ExecuteAsync(
-    new TradeQueryRequest { TradeNo = "202501..." }
-);
+    new TradeQueryRequest { TradeNo = "202501..." });
 ```
 
 ---
 
-## 🎯 Performance Benchmarks
+## 🎯 Performance Characteristics
 
-Running on **.NET 10 (Preview)**, results from `BenchmarkDotNet`:
+* Zero reflection at runtime
+* Frozen metadata dictionaries
+* Precompiled IL accessors
 
-| Method | Mean | Allocated |
-|--------|------|-----------|
-| Projection (Cold) | **52.3 ns** | **0 B** |
-| Projection (Warm) | **31.7 ns** | **0 B** |
-| Hydration | **48.1 ns** | **0 B** |
-| Full Pipeline | **~120 ns** | **~200 B** |
-
-**Key Optimizations:**
-- ✅ **FrozenDictionary** for metadata (zero allocation lookups)
-- ✅ **Precompiled IL** for property getters/setters
-- ✅ **Zero-reflection** at runtime
-- ✅ **Frozen collections** for endpoint routing
+Typical full pipeline cost: **~120 ns**
 
 ---
 
 ## 📚 Documentation
 
-- **[IMPLEMENTATION.md](./docs/IMPLEMENTATION.md)** - Detailed implementation guide
-- **[CONSTITUTION.md](./src/NexusContract.Abstractions/CONSTITUTION.md)** - Architectural constitution
-- **[PACKAGES.md](./PACKAGES.md)** - NuGet package overview
-- **[NUGET_PUBLISHING.md](./docs/NUGET_PUBLISHING.md)** - Publishing guide
-- **[CLIENT_SDK_GUIDE.md](./src/NexusContract.Client/CLIENT_SDK_GUIDE.md)** - Client SDK documentation
+* `CONSTITUTION.md` — Architectural rules & violation codes
+* `IMPLEMENTATION.md` — Internal mechanics
+* `CLIENT_SDK_GUIDE.md` — Client usage
+* `PACKAGES.md` — Package overview
 
 ---
 
-## 🤝 Contributing
+## 🧠 Final Summary
 
-Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) (planned).
+> **NexusContract is a constitutional execution kernel that treats every integration as law, not convention.**
 
----
 
 ## 📄 License
 
-MIT License - See [LICENSE](./LICENSE) for details.
-
----
-
-**Maintainer:** NexusContract  
-**Project Homepage:** https://github.com/NexusContract/PubSoft.NexusContract  
-**NuGet Profile:** https://www.nuget.org/profiles/pubsoft
+[MIT License](LICENSE)
