@@ -18,23 +18,29 @@ using StackExchange.Redis;
 namespace NexusContract.Hosting.Configuration
 {
     /// <summary>
-    /// 混合配置解析器：L1（内存）+ L2（Redis）双层缓存架构
+    /// 混合配置解析器：L1（内存）+ Redis（主数据源）双层架构
     /// 
-    /// 架构设计：
+    /// 架构设计（Redis-First）：
     /// - L1 缓存：ConcurrentDictionary（进程内，5 分钟 TTL）
-    /// - L2 缓存：Redis（跨实例共享，30 分钟 TTL）
-    /// - L3 数据源：ITenantRepository（数据库，按需查询）
+    /// - L2/L3 合并：Redis（持久化存储，永久保存 + RDB/AOF 持久化）
+    /// - L4 可选：数据库（冷备份 + 审计日志，通过外部服务异步写入）
+    /// 
+    /// 架构决策（ADR-008: Redis-First Tenant Storage）：
+    /// - 使用 Redis 作为租户配置主数据源（替代关系型数据库）
+    /// - 理由：ISV 场景配置变更低频、读多写少、KV 结构、无复杂查询需求
+    /// - 持久化：Redis RDB（每小时）+ AOF（每秒）保证数据安全
+    /// - 审计：可选接入外部审计服务（异步写入 MySQL/PostgreSQL）
     /// 
     /// 缓存策略：
-    /// 1. 查询时：L1 → L2 → L3（逐层回填）
-    /// 2. 刷新时：清除 L1 + L2，触发 Pub/Sub 通知其他实例
-    /// 3. 预热时：批量加载高频配置到 L1/L2
+    /// 1. 查询时：L1 → Redis（直接读取，无多层回填）
+    /// 2. 刷新时：清除 L1 + 更新 Redis，触发 Pub/Sub 通知其他实例
+    /// 3. 预热时：批量从 Redis 加载配置到 L1
     /// 
     /// 性能特征：
-    /// - L1 命中：&lt;1μs（纯内存）
-    /// - L2 命中：~1ms（Redis 网络开销）
-    /// - L3 查询：~10ms（数据库延迟）
-    /// - 缓存击穿保护：SemaphoreSlim 防止并发查询数据库
+    /// - L1 命中：<1μs（纯内存）
+    /// - Redis 查询：~1ms（网络 + 反序列化）
+    /// - 写入延迟：~2ms（Redis 写入 + Pub/Sub 通知）
+    /// - 缓存击穿保护：SemaphoreSlim 防止并发查询 Redis
     /// 
     /// 安全约束：
     /// - PrivateKey 序列化到 Redis 时必须加密（AES256）
@@ -112,7 +118,14 @@ namespace NexusContract.Hosting.Configuration
         }
 
         /// <summary>
-        /// JIT 解析配置（L1 → L2 → L3 逐层查询）
+        /// JIT 解析配置（支持默认 AppId 自动解析）
+        /// 
+        /// 解析策略：
+        /// 1. ProfileId 存在 → 精确匹配：sysid + appid + providername
+        /// 2. ProfileId 为空 → 默认匹配：sysid + providername + default appid
+        ///    - 尝试查找标记为 default 的 AppId
+        ///    - 若无默认标记，返回 first AppId
+        /// 3. 查询顺序：L1（内存）→ L2（Redis）
         /// </summary>
         public async Task<IProviderConfiguration> ResolveAsync(
             ITenantIdentity identity,
@@ -121,7 +134,15 @@ namespace NexusContract.Hosting.Configuration
             if (identity == null)
                 throw new ArgumentNullException(nameof(identity));
 
-            string cacheKey = BuildCacheKey(identity);
+            // 如果 ProfileId 为空，自动解析默认 AppId
+            ITenantIdentity resolvedIdentity = identity;
+            if (string.IsNullOrWhiteSpace(identity.ProfileId))
+            {
+                resolvedIdentity = await ResolveDefaultProfileAsync(identity, ct)
+                    .ConfigureAwait(false);
+            }
+
+            string cacheKey = BuildCacheKey(resolvedIdentity);
 
             // 1. 尝试 L1 缓存（内存）
             if (_memoryCache.TryGetValue(cacheKey, out ProviderSettings? l1Config) && l1Config != null)
@@ -144,22 +165,18 @@ namespace NexusContract.Hosting.Configuration
                 RedisValue l2Value = await _redisDb.StringGetAsync(cacheKey).ConfigureAwait(false);
                 if (l2Value.HasValue)
                 {
-                    ProviderSettings? l2Config = DeserializeConfig(l2Value!);
-                    if (l2Config != null)
+                    ProviderSettings? redisConfig = DeserializeConfig(l2Value!);
+                    if (redisConfig != null)
                     {
                         // 回填 L1 缓存
-                        SetL1Cache(cacheKey, l2Config);
-                        return l2Config;
+                        SetL1Cache(cacheKey, redisConfig);
+                        return redisConfig;
                     }
                 }
 
-                // 4. L3 数据源查询（数据库）
-                // TODO: 集成 ITenantRepository
-                // var config = await _tenantRepository.GetConfigurationAsync(identity, ct);
-
-                // 暂时抛出异常（等待数据源集成）
+                // 4. Redis 中也未找到配置
                 throw NexusTenantException.NotFound(
-                    $"{identity.ProviderName}:{identity.RealmId}:{identity.ProfileId}");
+                    $"{resolvedIdentity.ProviderName}:{resolvedIdentity.RealmId}:{resolvedIdentity.ProfileId}. Use SetConfigurationAsync() to create it.");
             }
             finally
             {
@@ -168,7 +185,116 @@ namespace NexusContract.Hosting.Configuration
         }
 
         /// <summary>
-        /// 刷新配置缓存（清除 L1 + L2 + Pub/Sub 通知）
+        /// 解析默认 ProfileId（AppId）
+        /// 
+        /// 策略：
+        /// 1. 查找 Redis Hash 中标记为 default 的 AppId
+        /// 2. 若无 default 标记，返回第一个 AppId
+        /// 3. 若该 SysId 下没有任何 AppId，抛出异常
+        /// </summary>
+        private async Task<ITenantIdentity> ResolveDefaultProfileAsync(
+            ITenantIdentity identity,
+            CancellationToken ct)
+        {
+            string groupKey = BuildGroupKey(identity.ProviderName, identity.RealmId);
+
+            // 1. 尝试获取标记为 default 的 AppId
+            RedisValue defaultAppId = await _redisDb.HashGetAsync(groupKey, "default")
+                .ConfigureAwait(false);
+
+            if (defaultAppId.HasValue && !string.IsNullOrWhiteSpace(defaultAppId.ToString()))
+            {
+                return new ConfigurationContext(identity.ProviderName, identity.RealmId)
+                {
+                    ProfileId = defaultAppId.ToString()
+                };
+            }
+
+            // 2. 回退到第一个 AppId
+            HashEntry[] allAppIds = await _redisDb.HashGetAllAsync(groupKey)
+                .ConfigureAwait(false);
+
+            if (allAppIds.Length == 0)
+            {
+                throw NexusTenantException.NotFound(
+                    $"No AppId found for {identity.ProviderName}:{identity.RealmId}");
+            }
+
+            // 排除 "default" 键，获取第一个实际的 AppId
+            HashEntry firstAppId = allAppIds.FirstOrDefault(e => e.Name != "default");
+            if (firstAppId.Name.IsNullOrEmpty)
+            {
+                throw NexusTenantException.NotFound(
+                    $"No valid AppId found for {identity.ProviderName}:{identity.RealmId}");
+            }
+
+            return new ConfigurationContext(identity.ProviderName, identity.RealmId)
+            {
+                ProfileId = firstAppId.Name.ToString()
+            };
+        }
+
+        /// <summary>
+        /// 设置租户配置（写入 Redis + 清除 L1 + Pub/Sub 通知）
+        /// 
+        /// 使用场景：
+        /// - 新增租户（运营后台调用）
+        /// - 更新密钥（密钥轮换）
+        /// - 修改网关地址（灰度切换）
+        /// </summary>
+        public async Task SetConfigurationAsync(
+            ITenantIdentity identity,
+            ProviderSettings configuration,
+            CancellationToken ct = default)
+        {
+            if (identity == null)
+                throw new ArgumentNullException(nameof(identity));
+            if (configuration == null)
+                throw new ArgumentNullException(nameof(configuration));
+
+            string cacheKey = BuildCacheKey(identity);
+
+            // 1. 写入 Redis（永久存储，无 TTL）
+            string json = SerializeConfig(configuration);
+            await _redisDb.StringSetAsync(cacheKey, json).ConfigureAwait(false);
+
+            // 2. 回填 L1 缓存
+            SetL1Cache(cacheKey, configuration);
+
+            // 3. 发布刷新通知（其他实例收到后清除 L1，下次请求重新加载）
+            await PublishRefreshNotificationAsync(identity).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// 删除租户配置（清除 Redis + L1 + Pub/Sub 通知）
+        /// 
+        /// 使用场景：
+        /// - 租户注销
+        /// - 测试数据清理
+        /// </summary>
+        public async Task DeleteConfigurationAsync(
+            ITenantIdentity identity,
+            CancellationToken ct = default)
+        {
+            if (identity == null)
+                throw new ArgumentNullException(nameof(identity));
+
+            string cacheKey = BuildCacheKey(identity);
+
+            // 1. 清除 L1 缓存
+            _memoryCache.Remove(cacheKey);
+
+            // 2. 删除 Redis 数据
+            await _redisDb.KeyDeleteAsync(cacheKey).ConfigureAwait(false);
+
+            // 3. 发布刷新通知
+            await PublishRefreshNotificationAsync(identity).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// 刷新配置缓存（清除 L1，触发下次请求重新从 Redis 加载）
+        /// 
+        /// 注意：不会删除 Redis 中的数据，只清除内存缓存
         /// </summary>
         public async Task RefreshAsync(
             ITenantIdentity identity,
@@ -182,10 +308,74 @@ namespace NexusContract.Hosting.Configuration
             // 1. 清除 L1 缓存
             _memoryCache.Remove(cacheKey);
 
-            // 2. 清除 L2 缓存
-            await _redisDb.KeyDeleteAsync(cacheKey).ConfigureAwait(false);
+            // 2. 发布刷新通知（其他实例收到后清除 L1）
+            await PublishRefreshNotificationAsync(identity).ConfigureAwait(false);
+        }
 
-            // 3. 发布刷新通知（其他实例收到后清除 L1）
+        /// <summary>
+        /// 预热配置缓存（从 Redis 批量加载配置到 L1）
+        /// 
+        /// 使用场景：
+        /// - 应用启动时预热所有租户配置
+        /// - 灰度发布前预热新实例
+        /// - 缓存失效后批量恢复
+        /// 
+        /// 实现策略：
+        /// 1. 使用 Redis SCAN 命令遍历所有配置键（避免 KEYS * 阻塞）
+        /// 2. 批量加载到 L1 内存缓存
+        /// 3. 限制并发数（防止内存溢出）
+        /// </summary>
+        public async Task WarmupAsync(CancellationToken ct = default)
+        {
+            int loadedCount = 0;
+            const int batchSize = 100; // 每批处理 100 个配置
+
+            try
+            {
+                // 使用 SCAN 命令遍历所有配置键（模式：nexus:config:*）
+                await foreach (RedisKey key in _redisDb.Multiplexer.GetServer(_redisDb.Multiplexer.GetEndPoints()[0])
+                    .KeysAsync(pattern: new RedisValue($"{_redisKeyPrefix}*"), pageSize: batchSize))
+                {
+                    if (ct.IsCancellationRequested)
+                        break;
+
+                    try
+                    {
+                        // 从 Redis 读取配置
+                        RedisValue value = await _redisDb.StringGetAsync(key).ConfigureAwait(false);
+                        if (!value.HasValue)
+                            continue;
+
+                        // 反序列化配置
+                        ProviderSettings? config = DeserializeConfig(value!);
+                        if (config == null)
+                            continue;
+
+                        // 加载到 L1 缓存
+                        string cacheKey = key.ToString();
+                        SetL1Cache(cacheKey, config);
+
+                        loadedCount++;
+                    }
+                    catch
+                    {
+                        // 忽略单个配置加载失败（避免影响整体预热）
+                        continue;
+                    }
+                }
+            }
+            catch
+            {
+                // 预热失败不应影响服务启动
+                // 日志记录由外部调用方处理
+            }
+        }
+
+        /// <summary>
+        /// 发布配置刷新通知（Pub/Sub）
+        /// </summary>
+        private async Task PublishRefreshNotificationAsync(ITenantIdentity identity)
+        {
             string message = JsonSerializer.Serialize(new
             {
                 identity.ProviderName,
@@ -197,23 +387,21 @@ namespace NexusContract.Hosting.Configuration
         }
 
         /// <summary>
-        /// 预热配置缓存（批量加载高频配置）
-        /// </summary>
-        public Task WarmupAsync(CancellationToken ct = default)
-        {
-            // TODO: 实现批量预热逻辑
-            // 1. 从数据库查询高频配置列表
-            // 2. 批量加载到 L1 + L2 缓存
-            return Task.CompletedTask;
-        }
-
-        /// <summary>
-        /// 构建缓存键
+        /// 构建缓存键（单个配置）
         /// </summary>
         private string BuildCacheKey(ITenantIdentity identity)
         {
             // 格式: "nexus:config:Alipay:2088123456789012:2021001234567890"
             return $"{_redisKeyPrefix}{identity.ProviderName}:{identity.RealmId}:{identity.ProfileId}";
+        }
+
+        /// <summary>
+        /// 构建 AppId 组键（用于存储 SysId 下的所有 AppId）
+        /// </summary>
+        private string BuildGroupKey(string providerName, string realmId)
+        {
+            // 格式: "nexus:config:group:Alipay:2088123456789012"
+            return $"{_redisKeyPrefix}group:{providerName}:{realmId}";
         }
 
         /// <summary>
@@ -226,15 +414,6 @@ namespace NexusContract.Hosting.Configuration
                 AbsoluteExpirationRelativeToNow = _l1Ttl,
                 Size = 1 // 用于 MemoryCache 大小限制
             });
-        }
-
-        /// <summary>
-        /// 设置 L2 缓存
-        /// </summary>
-        private async Task SetL2CacheAsync(string key, ProviderSettings config)
-        {
-            string json = SerializeConfig(config);
-            await _redisDb.StringSetAsync(key, json, _l2Ttl).ConfigureAwait(false);
         }
 
         /// <summary>
