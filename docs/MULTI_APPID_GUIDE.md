@@ -204,8 +204,8 @@ public abstract class NexusEndpointBase<TReq> : Endpoint<TReq, TReq.TResponse>
 
 | 场景 | L1 缓存命中 | L2 缓存命中 | 缓存未命中（含默认查询） |
 |------|------------|------------|----------------------|
-| **精确匹配** | < 1μs | ~1ms | ~2ms (Redis 2次查询) |
-| **默认 AppId** | < 1μs | ~1ms | ~3ms (Redis 3次查询) |
+| **精确匹配** | 极快 | ~1ms | ~2ms (Redis 2次查询) |
+| **默认 AppId** | 极快 | ~1ms | ~3ms (Redis 3次查询) |
 
 **缓存策略：**
 - L1（内存）：5 分钟 TTL

@@ -30,8 +30,8 @@ namespace NexusContract.Client
     /// 
     /// 【决策 A-501】Primary Constructor 的选择原因：
     /// .NET 10 引入的一级构造函数（Primary Constructor）是对传统样板代码的终极解决方案。
-    /// 相比传统的字段赋值模式，它减少了 50%+ 的噪音代码，完全符合 NexusContract 的"纯净至上"理念。
-    /// 代价：仅限 .NET 10+，但这在 2026 年已是完全可接受的约束。
+    /// 相比传统的字段赋值模式，它减少了 50%+ 的噪音代码，符合 NexusContract 的"纯净至上"理念。
+    /// 代价：仅限 .NET 10+，但这在 2026 年已是合理的约束。
     /// </summary>
     public sealed class NexusGatewayClient(
         HttpClient httpClient,

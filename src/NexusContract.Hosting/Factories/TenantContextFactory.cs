@@ -100,7 +100,7 @@ namespace NexusContract.Hosting.Factories
             if (string.IsNullOrEmpty(profileId))
                 throw NexusTenantException.MissingIdentifier("ProfileId (app_id / sub_mch_id)");
 
-            return new TenantContext(realmId, profileId, providerName);
+            return new TenantContext(realmId, profileId);
         }
 
         /// <summary>

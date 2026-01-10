@@ -23,11 +23,11 @@ namespace NexusContract.Abstractions.Contracts
     /// 1. 编译期类型安全
     ///    - 无需显式指定 TResponse，编译器自动推断
     ///    - 调用：await client.SendAsync(new PaymentRequest { ... })
-    ///    - 类型检查发生在编译期，运行期 100% 安全
+    ///    - 类型检查发生在编译期，运行期安全
     /// 
     /// 2. 反射开销最小化
     ///    - 首次加载时反射一次，提取 TResponse 并缓存
-    ///    - 后续调用直接查表，零反射开销
+    ///    - 后续调用直接查表，避免运行时反射
     ///    - 支撑 700+ 接口的高并发场景
     /// 
     /// 3. AI 代码生成的稳定性

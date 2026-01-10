@@ -160,7 +160,7 @@ namespace NexusContract.Providers.Alipay
         /// 
         /// 性能优化：
         /// - 首次：~10μs（配置转换 + 字典插入）
-        /// - 后续：~0.1μs（字典查找）
+        /// - 后续：极快（字典查找）
         /// </summary>
         /// <param name="configuration">通用配置</param>
         /// <returns>支付宝特定配置</returns>

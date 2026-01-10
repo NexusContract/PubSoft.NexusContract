@@ -36,7 +36,7 @@ namespace NexusContract.Core.Projection
 
         /// <summary>
         /// 将 Contract 投影为 Protocol Representation (Dictionary)
-        /// 性能优化：优先使用预编译的 Expression Tree Projector（零反射开销）
+        /// 性能优化：优先使用预编译的 Expression Tree Projector（避免运行时反射）
         /// Fallback：递归投影支持嵌套对象和列表（深度限制 3 层）
         /// </summary>
         public IDictionary<string, object> Project<TResponse>(object contract)

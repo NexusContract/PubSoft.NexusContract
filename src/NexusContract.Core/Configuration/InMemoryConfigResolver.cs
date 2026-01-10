@@ -38,7 +38,7 @@ namespace NexusContract.Core.Configuration
     /// - 大量租户（内存占用线性增长）
     /// 
     /// 性能特征：
-    /// - 查询延迟：&lt;1μs（纯内存访问）
+    /// - 查询延迟：极快（纯内存访问）
     /// - 内存占用：~1KB/配置（假设密钥 2048 位）
     /// - 并发能力：无限制（ConcurrentDictionary 无锁读）
     /// </summary>

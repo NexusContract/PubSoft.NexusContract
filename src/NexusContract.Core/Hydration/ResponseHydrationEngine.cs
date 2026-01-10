@@ -38,7 +38,7 @@ namespace NexusContract.Core.Hydration
 
         /// <summary>
         /// 将 Dictionary 回填到强类型 Response
-        /// 性能优化：优先使用预编译的回填委托（零反射开销）
+        /// 性能优化：优先使用预编译的回填委托（避免运行时反射）
         /// Fallback：反射回填支持复杂对象、集合、解密、类型转换
         /// </summary>
         public T Hydrate<T>(IDictionary<string, object> source) where T : new()

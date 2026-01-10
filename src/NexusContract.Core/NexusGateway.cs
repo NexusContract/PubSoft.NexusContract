@@ -40,7 +40,7 @@ namespace NexusContract.Core
     /// 
     /// 为什么用 ConfigureAwait(false)？
     /// - 避免切换回 UI 线程（支付系统总是后端，无 UI 线程）
-    /// - 继续使用线程池线程，零上下文切换开销
+    /// - 继续使用线程池线程，无上下文切换开销
     /// 
     /// 禁止项：
     /// - 不允许在 Provider 中用 .Wait() 或 .Result 来同步等待
@@ -97,7 +97,7 @@ namespace NexusContract.Core
             {
                 Type requestType = request.GetType();
 
-                // 1. 验证契约（缓存后零开销）
+                // 1. 验证契约（缓存后极快）
                 ContractMetadata metadata = NexusContractMetadataRegistry.Instance.GetMetadata(requestType);
                 string? operationId = metadata.Operation?.OperationId;
 

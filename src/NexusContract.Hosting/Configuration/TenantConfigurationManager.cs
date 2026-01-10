@@ -72,7 +72,7 @@ namespace NexusContract.Hosting.Configuration
             var writeConfigTask = _resolver.SetConfigurationAsync(identity, configuration, ct);
 
             // 2. 更新映射层（Map Layer - 授权白名单 + 配置集合）
-            string mapKey = BuildMapKey(providerName, realmId);
+            string mapKey = BuildMapKey(realmId, providerName);
             var updateMapTask = transaction.SetAddAsync(mapKey, profileId);
 
             // 3. 如果标记为默认，设置默认 ProfileId 标记
@@ -125,7 +125,7 @@ namespace NexusContract.Hosting.Configuration
             var deleteConfigTask = _resolver.DeleteConfigurationAsync(identity, ct);
 
             // 2. 从映射层中移除（Map Layer - 从授权白名单中删除）
-            string mapKey = BuildMapKey(providerName, realmId);
+            string mapKey = BuildMapKey(realmId, providerName);
             var deleteMapTask = transaction.SetRemoveAsync(mapKey, profileId);
 
             // 3. 如果删除的是默认 ProfileId，清除默认标记
@@ -156,7 +156,7 @@ namespace NexusContract.Hosting.Configuration
                 throw new ArgumentNullException(nameof(realmId));
 
             // 从映射层获取所有 ProfileId（Redis Set）
-            string mapKey = BuildMapKey(providerName, realmId);
+            string mapKey = BuildMapKey(realmId, providerName);
             var members = await _redisDb.SetMembersAsync(mapKey)
                 .ConfigureAwait(false);
 
@@ -192,7 +192,7 @@ namespace NexusContract.Hosting.Configuration
                 throw new ArgumentNullException(nameof(realmId));
 
             // 从映射层的默认标记中获取
-            string mapKey = BuildMapKey(providerName, realmId);
+            string mapKey = BuildMapKey(realmId, providerName);
             string defaultMarker = $"{mapKey}:default";
             RedisValue defaultProfileId = await _redisDb.StringGetAsync(defaultMarker)
                 .ConfigureAwait(false);
@@ -212,7 +212,7 @@ namespace NexusContract.Hosting.Configuration
             ValidateIdentifier(providerName, realmId, profileId);
 
             // 从映射层验证该 ProfileId 是否存在
-            string mapKey = BuildMapKey(providerName, realmId);
+            string mapKey = BuildMapKey(realmId, providerName);
             bool exists = await _redisDb.SetContainsAsync(mapKey, profileId)
                 .ConfigureAwait(false);
             if (!exists)
@@ -372,8 +372,14 @@ namespace NexusContract.Hosting.Configuration
         /// - 旧设计：group (分组) + index (索引) → 职责重复
         /// - 新设计：map (映射) → 单一真相源
         /// </summary>
-        private string BuildMapKey(string providerName, string realmId)
+        private string BuildMapKey(string realmId, string providerName)
         {
+            // 验证必需参数（RealmId 优先）
+            if (string.IsNullOrWhiteSpace(realmId))
+                throw new ArgumentNullException(nameof(realmId));
+            if (string.IsNullOrWhiteSpace(providerName))
+                throw new ArgumentNullException(nameof(providerName));
+
             // RealmId 优先排列，便于 Redis Cluster 按业务单元分片
             return $"nxc:map:{realmId}:{providerName}";
         }
