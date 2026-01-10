@@ -1,6 +1,6 @@
 # 🏛️ NexusContract Architecture Blueprint v1.0
 
-> **Version:** 1.0 (Final Revision)
+> **Version:** 0.1 (Final Revision)
 > **Status:** ✅ Approved
 > **Date:** January 10, 2026
 > **Scope:** End-to-End High-Performance Gateway Architecture
@@ -22,27 +22,33 @@ The architecture follows a strict **"Receiver-Dispatcher-Transporter"** flow, in
 
 ## 2. Physical Architecture & Data Flow
 
-The architecture enforces unidirectional data flow from Ingress to Egress.
+**Layout Note:** The flow proceeds from Top to Bottom to prevent horizontal scrolling.
 
 ```mermaid
-graph LR
-    %% External World
-    User[Client / BFF] -->|HTTP/JSON| FE[FastEndpoints (Ingress)]
+graph TD
+    %% 1. External World (Top)
+    User[Client / BFF] -->|HTTP/JSON| FE[FastEndpoints Ingress]
     
-    %% Internal Gateway Host
-    subgraph "Nexus Gateway Host"
+    %% 2. Internal Gateway Host
+    subgraph GatewayHost [Nexus Gateway Host]
+        direction TB
+        
+        %% Ingress to Engine
         FE -->|POCO| Core[NexusContract Engine]
+        
+        %% Engine to Business Logic
         Core -->|Dispatch| Provider[Alipay Provider]
         
-        %% Strategy Injection
-        Provider -.->|Resolve Address| Url[UrlStrategy]
+        %% Provider Logic (Broken down vertically)
+        Provider -.->|1. Resolve Address| Url[UrlStrategy]
+        Provider -->|2. Signed Request| Yarp[YarpTransport Egress]
         
-        %% Transport
-        Provider -->|Signed Request| Yarp[YarpTransport (Egress)]
+        %% Styling for grouping
+        style Url stroke-dasharray: 5 5
     end
     
-    %% Upstream World
-    Yarp -->|HTTP/2 Tunnel| Upstream[Alipay / UnionPay]
+    %% 3. Upstream World (Bottom)
+    Yarp -->|HTTP/2 Tunnel| Upstream[Alipay / UnionPay API]
     
     %% Styles
     style FE fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px

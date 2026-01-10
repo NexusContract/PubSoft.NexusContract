@@ -25,30 +25,46 @@
 架构强制执行从入口到出口的单向数据流。
 
 ```mermaid
-graph LR
-    %% 外部世界
+graph TD
+    %% 1. 外部世界
     User[客户端 / BFF] -->|HTTP/JSON| FE[FastEndpoints 入口]
     
-    %% 网关宿主内部
+    %% 2. 网关宿主内部
     subgraph GatewayHost [Nexus 网关宿主]
+        direction TB
+        
+        %% 入口 -> 引擎
         FE -->|强类型对象| Core[NexusContract 引擎]
+        
+        %% 引擎 -> 业务逻辑
         Core -->|调度| Provider[支付宝 Provider]
         
-        %% 策略注入
-        Provider -.->|计算地址| Urlhttps://dictionary.cambridge.org/zht/%E8%A9%9E%E5%85%B8/%E8%8B%B1%E8%AA%9E-%E6%BC%A2%E8%AA%9E-%E7%B9%81%E9%AB%94/strategy
+        %% 业务逻辑 -> 执行阶段 (策略与基建)
+        %% 使用子图将底部元素在视觉上归拢
+        subgraph Execution [执行阶段]
+            direction TB
+            style Execution fill:none,stroke:none
+            
+            %% 策略注入 (辅助)
+            Urlhttps://dictionary.cambridge.org/zht/%E8%A9%9E%E5%85%B8/%E8%8B%B1%E8%AA%9E-%E6%BC%A2%E8%AA%9E-%E7%B9%81%E9%AB%94/strategy
+            
+            %% 出口传输
+            Yarp[YarpTransport 出口]
+        end
         
-        %% 传输层
-        Provider -->|已签名请求| Yarp[YarpTransport 出口]
+        Provider -.->|1. 计算地址| Url
+        Provider -->|2. 已签名请求| Yarp
     end
     
-    %% 上游世界
-    Yarp -->|HTTP/2 隧道| Upstream[支付宝 / 银联]
+    %% 3. 上游世界
+    Yarp -->|HTTP/2 隧道| Upstream[支付宝 / 银联 接口]
     
     %% 样式定义
     style FE fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
     style Core fill:#fff9c4,stroke:#fbc02d,stroke-width:2px
     style Provider fill:#fff3e0,stroke:#e65100,stroke-width:2px
     style Yarp fill:#ffccbc,stroke:#bf360c,stroke-width:2px
+    style Url fill:#f5f5f5,stroke:#9e9e9e,stroke-width:1px,stroke-dasharray: 5 5
 
 ```
 
