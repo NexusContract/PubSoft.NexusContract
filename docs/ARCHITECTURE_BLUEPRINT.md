@@ -6,6 +6,8 @@
 > **Scenario:** High-concurrency ISV gateway for Alipay/WeChat Pay (hundreds of merchants dynamic access)
 > **Technical Constraints:** Core contracts compatible with .NET Standard 2.0 (WinForm/Legacy support)
 
+> **Applicability / Scope:** This document (Blueprint **v1.1**) is the ISV *Multi‑Tenant Execution Release* and represents the **target architecture** for the v1.x series. The public codebase currently targets **v1.0.0‑preview.10** and has implemented the blueprint's core constitutional constraints (startup validation, zero reflection, deterministic execution). ISV‑specific extensions (JIT Resolver, Realm/Profile abstractions, Provider statelessness, YarpTransport integration) are being progressively implemented and validated in controlled environments. This section will be updated to reflect actual coverage and any pragmatic deviations after production replacement validation completes.
+
 ## 1. Architectural Overview
 
 This architecture follows the **"Ingress -> Dispatcher -> JIT Resolver -> Executor"** pipeline model.

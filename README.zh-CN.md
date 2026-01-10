@@ -9,6 +9,10 @@
 > **“显式边界，优于隐式魔法。”**  
 > 这不是口号，而是 NexusContract 的宪法级设计原则。
 
+> ## 📐 架构蓝图 (v1.1 — ISV 多租户)
+> 完整蓝图请参阅：`docs/ARCHITECTURE_BLUEPRINT.zh-CN.md`（v1.1，2026‑01‑10）。  
+> **当前代码库：** `v1.0.0‑preview.10` — 已实现蓝图的核心宪法约束（启动期校验、零反射、确定性执行），ISV 扩展（JIT Resolver、Realm/Profile、YarpTransport）正在受控环境中逐步落地。替换验证完成后将更新文档以反映最终覆盖情况。
+
 本框架所有设计均围绕以下目标展开：
 
 - **确定性（Determinism）**

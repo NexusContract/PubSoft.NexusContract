@@ -6,6 +6,8 @@
 > **场景:** 面向支付宝/微信支付的高并发 ISV 服务商网关 (上百商户动态接入)
 > **技术约束:** 核心契约兼容 .NET Standard 2.0 (WinForm/Legacy 支持)
 
+> **适用范围 / 声明：** 本文档（蓝图 **v1.1**）为 ISV *多租户执行发布*，代表 v1.x 系列的**目标架构**。公开代码库当前目标为 **v1.0.0-preview.10**，已实现蓝图中的核心宪法约束（启动期校验、零反射、确定性执行）。ISV 专属扩展（JIT Resolver、Realm/Profile 抽象、Provider 无状态化、YarpTransport 集成）正在逐步实现并在受控环境中进行验证。替换验证完成后，本节将更新以反映实际覆盖情况与任何偏差。
+
 ## 1. 架构总览 (Architectural Overview)
 
 本架构遵循 **“接收 (Ingress) -> 调度 (Dispatcher) -> 动态配置 (JIT Resolver) -> 执行 (Executor)”** 的流水线模型。
