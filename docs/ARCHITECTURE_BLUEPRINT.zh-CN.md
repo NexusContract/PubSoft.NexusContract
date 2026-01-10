@@ -27,10 +27,10 @@
 ```mermaid
 graph LR
     %% 外部世界
-    User[客户端 / BFF] -->|HTTP/JSON| FE[FastEndpoints (入口)]
+    User[客户端 / BFF] -->|HTTP/JSON| FE[FastEndpoints 入口]
     
     %% 网关宿主内部
-    subgraph "Nexus 网关宿主"
+    subgraph GatewayHost [Nexus 网关宿主]
         FE -->|强类型对象| Core[NexusContract 引擎]
         Core -->|调度| Provider[支付宝 Provider]
         
@@ -38,7 +38,7 @@ graph LR
         Provider -.->|计算地址| Urlhttps://dictionary.cambridge.org/zht/%E8%A9%9E%E5%85%B8/%E8%8B%B1%E8%AA%9E-%E6%BC%A2%E8%AA%9E-%E7%B9%81%E9%AB%94/strategy
         
         %% 传输层
-        Provider -->|已签名请求| Yarp[YarpTransport (出口)]
+        Provider -->|已签名请求| Yarp[YarpTransport 出口]
     end
     
     %% 上游世界
