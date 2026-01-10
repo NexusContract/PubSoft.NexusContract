@@ -1,216 +1,286 @@
-# 🏛️ NexusContract Architecture Blueprint v1.0
+# NexusContract Architecture Blueprint v1.1
 
-> **Version:** 0.1 (Final Revision)
+> **Version:** 1.1 (ISV Multi-Tenant Execution Release)
 > **Status:** ✅ Approved
 > **Date:** January 10, 2026
-> **Scope:** End-to-End High-Performance Gateway Architecture
+> **Scenario:** High-concurrency ISV gateway for Alipay/WeChat Pay (hundreds of merchants dynamic access)
+> **Technical Constraints:** Core contracts compatible with .NET Standard 2.0 (WinForm/Legacy support)
 
 ## 1. Architectural Overview
 
-The architecture follows a strict **"Receiver-Dispatcher-Transporter"** flow, integrating **FastEndpoints** (Ingress) with **NexusContract** (Logic) and **YARP** (Egress).
+This architecture follows the **"Ingress -> Dispatcher -> JIT Resolver -> Executor"** pipeline model.
 
-### Component Roles & Responsibilities
+### Core Component Responsibilities
 
-| Component | Layer | Metaphor | Responsibility | Dependency Scope |
-| --- | --- | --- | --- | --- |
-| **FastEndpoints** | **Ingress** | **Reception Desk** | **Entry Point.** Validates incoming HTTP requests, handles Auth, and invokes the Nexus Engine. | 🟢 **Presentation** |
-| **NexusContract.Core** | **Engine** | **Dispatcher** | **Processing Center.** Validates contracts, executes pipelines, and orchestrates Providers. | 🟡 **Core Logic** |
-| **NexusContract.Providers** | **Adapter** | **Packer** | **Business Logic.** Encapsulates vendor-specific logic (Signing, Encryption) and maps protocols. | 🟡 **Business Logic** |
-| **NexusContract.Hosting.Yarp** | **Egress** | **Truck Fleet** | **Outbound Transport.** Sends requests to upstream APIs using high-performance HTTP/2 tunnels. | 🔴 **Infrastructure** |
+| Component | Layer | Metaphor Role | Responsibility | Key Features |
+|-----------|-------|---------------|----------------|--------------|
+| **FastEndpoints** | **Ingress** | **Receiver** | Dumb terminal. Handles metadata routing, exception normalization, tenant context extraction. | 🟢 **Metadata Zero-Code** |
+| **NexusEngine** | **Core** | **Dispatcher** | Brain. Routes to corresponding Provider based on Request type. | 🟡 **Stateless Dispatch** |
+| **ConfigResolver** | **Strategy** | **Butler** | **New Introduction**. Maps business identity (Realm/Profile) to physical configuration. | 🔵 **JIT Dynamic Loading** |
+| **Provider** | **Business** | **Expert** | Stateless singleton. Handles signing and protocol conversion only, no static configuration. | 🟡 **Environment Isolation** |
+| **YarpTransport** | **Egress** | **Fleet** | High-performance HTTP/2 connection pool tunnel. | 🔴 **Multiplexing** |
 
 ---
 
-## 2. Physical Architecture & Data Flow
-
-**Layout Note:** The flow proceeds from Top to Bottom to prevent horizontal scrolling.
+## 2. Physical Architecture and Data Flow
 
 ```mermaid
 graph TD
-    %% 1. External World (Top)
-    User[Client / BFF] -->|HTTP/JSON| FE[FastEndpoints Ingress]
-    
-    %% 2. Internal Gateway Host
+    %% 1. External Request
+    User[Client / BFF] -->|HTTP + Business Params| FE[FastEndpoints Ingress]
+
+    %% 2. Gateway Internal Host
     subgraph GatewayHost [Nexus Gateway Host]
         direction TB
-        
-        %% Ingress to Engine
-        FE -->|POCO| Core[NexusContract Engine]
-        
-        %% Engine to Business Logic
-        Core -->|Dispatch| Provider[Alipay Provider]
-        
-        %% Provider Logic (Broken down vertically)
-        Provider -.->|1. Resolve Address| Url[UrlStrategy]
-        Provider -->|2. Signed Request| Yarp[YarpTransport Egress]
-        
-        %% Styling for grouping
-        style Url stroke-dasharray: 5 5
+
+        %% A. Reception and Context Building (Zero-Code Base)
+        FE -->|1. Strongly-typed Req + Context| Core[NexusEngine]
+
+        %% B. Dispatch
+        Core -->|2. Dispatch (Stateless)| Provider[Alipay / WeChat Provider]
+
+        %% C. Configuration Resolution (JIT Core)
+        subgraph ConfigLayer [Configuration Strategy Layer]
+            direction TB
+            style ConfigLayer fill:#e3f2fd,stroke:#1565c0,stroke-dasharray: 5 5
+
+            Resolver[Configuration Resolver]
+            Cache[(L1 Memory + L2 Redis)]
+
+            Resolver <-->|3. Get Keys (JIT)| Cache
+        end
+
+        %% D. Execution and Transport
+        subgraph ExecutionLayer [Execution Layer]
+            direction TB
+            style ExecutionLayer fill:none,stroke:none
+
+            Url[Url Decision]
+            Yarp[YarpTransport]
+        end
+
+        Provider -->|3a. Request Config (with ProviderName)| Resolver
+        Provider -.->|4. Calculate Route (no keys)| UrlStrategy
+        Provider -->|5. Sign and Send| Yarp
     end
-    
-    %% 3. Upstream World (Bottom)
-    Yarp -->|HTTP/2 Tunnel| Upstream[Alipay / UnionPay API]
-    
-    %% Styles
+
+    %% 3. Upstream
+    Yarp -->|HTTP/2| Upstream[Alipay / WeChat Pay API]
+
+    %% Style Definitions
     style FE fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
     style Core fill:#fff9c4,stroke:#fbc02d,stroke-width:2px
     style Provider fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style Yarp fill:#ffccbc,stroke:#bf360c,stroke-width:2px
+    style Resolver fill:#bbdefb,stroke:#0d47a1,stroke-width:2px
 
 ```
 
 ---
 
-## 3. Core Abstractions (`NexusContract.Abstractions`)
+## 3. Core Contracts (`NexusContract.Abstractions`)
 
-These interfaces decouple the **Business Intent** from the **Physical Execution**.
+**Technical Constraints:** Target framework **.NET Standard 2.0**. Strictly prohibit `record`, `required`, `init`.
 
-### A. Transport Abstraction (`INexusTransport`)
-
-Decouples Providers from the underlying HTTP client implementation.
+### A. Configuration Context
 
 ```csharp
-namespace NexusContract.Transports;
+namespace NexusContract.Abstractions;
 
-public interface INexusTransport
+public class ConfigurationContext
 {
-    /// <summary>
-    /// Asynchronously sends an HTTP request.
-    /// </summary>
-    /// <param name="request">The signed HttpRequestMessage.</param>
-    /// <param name="context">Context containing metadata (Retry Policy, Timeout, Tracing ID).</param>
-    Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request, 
-        NexusContext context, 
-        CancellationToken ct = default);
+    // Mandatory constructor validation
+    public ConfigurationContext(string providerName, string realmId)
+    {
+        if (string.IsNullOrEmpty(providerName)) throw new ArgumentNullException(nameof(providerName));
+        if (string.IsNullOrEmpty(realmId)) throw new ArgumentNullException(nameof(realmId));
+
+        ProviderName = providerName;
+        RealmId = realmId;
+    }
+
+    /// <summary>Channel identifier (e.g. "Alipay")</summary>
+    public string ProviderName { get; private set; }
+
+    /// <summary>Domain/Ownership (corresponds to SysId / SpMchId)</summary>
+    public string RealmId { get; private set; }
+
+    /// <summary>Profile/Execution Unit (corresponds to AppId / SubMchId)</summary>
+    public string ProfileId { get; set; }
+
+    public Dictionary<string, object> Metadata { get; set; }
 }
 
 ```
 
-### B. Routing Strategy (`IUpstreamUrlBuilder`)
-
-Decouples "Logical Operation IDs" from "Physical URLs", ensuring deterministic signing.
+### B. Routing Context - **Security Isolation**
 
 ```csharp
-namespace NexusContract.Routing;
+public class RoutingContext
+{
+    public RoutingContext(Uri baseUrl)
+    {
+        if (baseUrl == null) throw new ArgumentNullException(nameof(baseUrl));
+        BaseUrl = baseUrl;
+    }
+
+    public Uri BaseUrl { get; private set; }
+    public string Version { get; set; }
+}
 
 public interface IUpstreamUrlBuilder
 {
-    /// <summary>
-    /// Resolves the physical upstream URI based on the Operation ID.
-    /// Example: "alipay.trade.pay" -> "https://openapi.alipay.com/v3/pay"
-    /// </summary>
-    Uri Build(string operationId, ProviderSettings settings);
+    // ✅ Fixed: Only receives pure Context, not Settings containing private keys
+    Uri Build(string operationId, RoutingContext context);
 }
 
 ```
 
 ---
 
-## 4. Implementation Strategy
+## 4. Key Implementation Strategies
 
-### A. Ingress Layer (FastEndpoints)
+### A. Ingress Layer: Zero-Code and Metadata-Driven
 
-Acts as the host for NexusContract, handling the initial request reception.
+Using **Template Method Pattern**. Base class handles routing, tenant extraction, engine dispatch, and **NxcErrorEnvelope** encapsulation.
 
 ```csharp
-public class CreateTradeEndpoint : Endpoint<CreateTradeRequest, TradeResponse>
+// Core Base Class: NexusEndpointBase
+public abstract class NexusEndpointBase<TReq, TResp> : Endpoint<TReq, TResp>
+    where TReq : class, IApiRequest<TResp>, new()
+    where TResp : class, new()
 {
-    public INexusEngine _engine { get; set; } // Inject the Core Engine
+    private readonly INexusEngine _engine; // Replace specific Provider with universal dispatch
+    private readonly ILogger _logger;
+
+    protected NexusEndpointBase(INexusEngine engine, ILogger logger)
+    {
+        _engine = engine;
+        _logger = logger;
+    }
 
     public override void Configure()
     {
-        Post("/api/trade/create");
+        // 1. [Zero-Code] Auto-generate routes based on [ApiOperation] metadata
+        var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(typeof(TReq));
+
+        if (metadata?.Operation == null)
+            throw new InvalidOperationException($"Missing [ApiOperation] on {typeof(TReq).Name}");
+
+        // e.g., "nexus.trade.create" -> "/api/trade/create"
+        string route = RouteStrategy.Convert(metadata.Operation.OperationId);
+
+        Post(route);
         AllowAnonymous();
     }
 
-    public override async Task HandleAsync(CreateTradeRequest req, CancellationToken ct)
+    public override async Task HandleAsync(TReq req, CancellationToken ct)
     {
-        // 1. Ingress: FastEndpoints binds JSON to POCO
-        
-        // 2. Dispatch: Nexus Engine finds the provider, signs, and sends
-        var result = await _engine.ExecuteAsync(req, ct);
+        try
+        {
+            // 2. [ISV Feature] Auto-extract tenant context (SysId/AppId)
+            var tenantCtx = TenantContextFactory.Create(req, HttpContext);
 
-        // 3. Response: Return standardized result
-        await SendAsync(result);
+            // 3. [Dispatcher] Delegate to engine dispatch
+            var response = await _engine.ExecuteAsync(req, tenantCtx, ct);
+
+            await SendAsync(response);
+        }
+        // 4. [Error Normalization] Unified error contract (NxcErrorEnvelope)
+        catch (ContractIncompleteException ex)
+        {
+            await SendEnvelopeAsync(400, "NXC200", ex.Message, ex.GetDiagnosticData(), ct);
+        }
+        catch (NexusTenantException ex) // Tenant resolution failure
+        {
+            await SendEnvelopeAsync(403, "TENANT_INVALID", ex.Message, null, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Gateway Error");
+            await SendEnvelopeAsync(500, "NXC999", "Internal Server Error", null, ct);
+        }
     }
 }
 
 ```
 
-### B. Business Layer (Provider)
+### B. Infrastructure: ISV Hybrid Resolver
 
-Providers focus on protocol projection and security.
+Maps "business dialect" to "framework standard".
 
 ```csharp
-public class AlipayProvider(
-    INexusTransport _transport,     // Injected: YarpTransport or HttpClientTransport
-    IUpstreamUrlBuilder _urlBuilder // Injected: RPC or REST V3 Strategy
-) : IProvider
+public class HybridConfigResolver : IConfigurationResolver
 {
-    public async Task<TResponse> ExecuteAsync<TResponse>(IApiRequest<TResponse> request, NexusContext ctx)
+    private readonly ITenantRepository _repo;
+
+    public async Task<ProviderSettings> ResolveAsync(ConfigurationContext ctx, CancellationToken ct)
     {
-        // 1. Addressing: Resolve physical URL BEFORE signing
-        var targetUri = _urlBuilder.Build(request.GetOperationId(), _settings);
+        // 1. Terminology mapping: RealmId -> SysId, ProfileId -> InnerAppId
+        // 2. L1/L2 cache lookup
+        var config = await _repo.GetAsync(ctx.ProviderName, ctx.RealmId, ctx.ProfileId);
 
-        // 2. Signing: Sign the DETERMINISTIC URL and Body
-        var httpRequest = _signer.SignRequest(request, targetUri);
-
-        // 3. Transport: Delegate to infrastructure
-        var response = await _transport.SendAsync(httpRequest, ctx);
-
-        return await _hydrator.HydrateAsync<TResponse>(response);
+        if (config == null) throw new NexusTenantException("Invalid merchant configuration");
+        return config;
     }
 }
 
 ```
 
-### C. Infrastructure Layer (Transport Comparison)
+### C. Business Layer: Stateless Provider
 
-| Feature | Default Transport (`NexusContract.Core`) | High-Performance Transport (`NexusContract.Hosting.Yarp`) |
-| --- | --- | --- |
-| **Base Tech** | `System.Net.Http.HttpClient` | `Yarp.ReverseProxy.Forwarder` |
-| **Use Case** | Development, Functional Testing | Production, High Concurrency |
-| **Connection Pooling** | Standard `SocketsHttpHandler` | Aggressive Reuse, Active Health Checks |
-| **Multiplexing** | Standard | **HTTP/2 & HTTP/3 Multiplexing** |
-| **Setup** | Built-in (Zero Config) | Opt-in via `.UseYarpTransport()` |
+Provider hardcodes `ProviderName` and dynamically loads configuration at runtime.
+
+```csharp
+public class AlipayProvider(IConfigurationResolver _resolver, ...) : IProvider
+{
+    private const string NAME = "Alipay";
+
+    public async Task<TResponse> ExecuteAsync(IApiRequest request, NexusContext ctx)
+    {
+        // 1. Construct context
+        var configCtx = new ConfigurationContext(NAME, ctx.Metadata["SysId"])
+        {
+            ProfileId = ctx.Metadata["AppId"]
+        };
+
+        // 2. JIT load configuration
+        var settings = await _resolver.ResolveAsync(configCtx, CancellationToken.None);
+
+        // 3. Sign (private key used only here)
+        var targetUri = _urlBuilder.Build(request.GetOperationId(), new RoutingContext(settings.GatewayUrl));
+        var httpRequest = _signer.SignRequest(request, targetUri, settings);
+
+        return await _transport.SendAsync(httpRequest, ctx);
+    }
+}
+
+```
 
 ---
 
 ## 5. Composition Root (Program.cs)
 
-Wiring everything together using .NET Dependency Injection.
-
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Ingress: Add FastEndpoints
+// 1. Core and Ingress
 builder.Services.AddFastEndpoints();
+builder.Services.AddNexusContract();
 
-// 2. Logic: Add NexusContract & Providers
-builder.Services.AddNexusContract(options =>
-{
-    options.AddAlipay(alipay => 
-    {
-        // Strategy: Use REST V3 endpoints
-        alipay.UseUrlStrategy<RestV3UrlBuilder>();
-        alipay.AppId = builder.Configuration["Alipay:AppId"];
-    });
-});
+// 2. ISV Resolver and Repository
+builder.Services.AddSingleton<IConfigurationResolver, HybridConfigResolver>();
+builder.Services.AddSingleton<ITenantRepository, RedisTenantRepository>();
 
-// 3. Egress: Add YARP (Production Only)
+// 3. Register Providers
+builder.Services.AddSingleton<IProvider, AlipayProvider>();
+
+// 4. Production Egress (YARP)
 if (builder.Environment.IsProduction())
 {
-    // Replaces default transport with YARP implementation
-    builder.Services.AddNexusYarpHosting(config => 
-    {
-        config.MaxConnectionsPerServer = 1000;
-        config.EnableHttp2 = true;
-    });
+    builder.Services.AddNexusYarpHosting();
 }
 
 var app = builder.Build();
-
-// 4. Start Pipeline
 app.UseFastEndpoints();
 app.Run();
 
@@ -218,16 +288,34 @@ app.Run();
 
 ---
 
-## 6. Key Architecture Decisions (ADR Summary)
+## 6. Key Architectural Decision Records (ADR Summary)
+
+### Base Architecture (Inherited from v1.0)
 
 * **ADR-001: Ingress/Egress Separation**
-* **FastEndpoints** handles Ingress (Client -> Gateway).
-* **YARP** handles Egress (Gateway -> Upstream).
-
+* **FastEndpoints** handles ingress (API definition), **YARP** handles egress (HTTP/2 transport).
 
 * **ADR-002: Client Purity**
-* `NexusContract.Client` SDK has zero dependencies on YARP or Core logic.
-
+* `NexusContract.Client` SDK must remain zero-dependency, no references to FastEndpoints or YARP.
 
 * **ADR-003: Deterministic Signing**
-* URL resolution (`IUpstreamUrlBuilder`) must occur inside the Provider logic *before* signing to prevent signature mismatches.
+* URL resolution must complete inside Provider, before signing.
+
+### ISV Enhanced Architecture (v1.1 Additions)
+
+* **ADR-004: JIT Configuration**
+* **Change:** Deprecate static `IOptions` singleton injection.
+* **Decision:** Adopt `IConfigurationResolver` with L1/L2 caching.
+* **Reason:** Support hundreds of merchants dynamic access, configuration updates without service restart.
+
+* **ADR-005: Realm & Profile**
+* **Decision:** Framework layer abstracts to `RealmId` (domain) and `ProfileId` (profile).
+* **Reason:** Compatible with both Alipay (AppId system) and WeChat Pay (service provider system), eliminate business terminology pollution like `SysId`.
+
+* **ADR-006: Context Isolation**
+* **Decision:** `ProviderSettings` (containing private keys) strictly prohibited from URL Builder.
+* **Reason:** Principle of least privilege, prevent key leakage from URL strategy layer.
+
+* **ADR-007: Compatibility Degradation**
+* **Decision:** `NexusContract.Abstractions` must be compatible with **.NET Standard 2.0**.
+* **Reason:** Support enterprise internal WinForm and legacy .NET Framework system access. Prohibit `record`, `required`.
