@@ -156,7 +156,7 @@ namespace NexusContract.Hosting.Configuration
                 // 4. L3 数据源查询（数据库）
                 // TODO: 集成 ITenantRepository
                 // var config = await _tenantRepository.GetConfigurationAsync(identity, ct);
-                
+
                 // 暂时抛出异常（等待数据源集成）
                 throw NexusTenantException.NotFound(
                     $"{identity.ProviderName}:{identity.RealmId}:{identity.ProfileId}");

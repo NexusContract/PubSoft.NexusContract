@@ -1,6 +1,6 @@
-# 🏛️ NexusContract 架构蓝图 v1.2 (Final Execution Release)
+# 🏛️ NexusContract 架构蓝图 v1.1 (Final Execution Release)
 
-> **版本:** 1.2 (ISV 多商户执行版)
+> **版本:** 1.1 (ISV 多商户执行版)
 > **状态:** ✅ 已批准 (Approved)
 > **日期:** 2026年1月10日
 > **场景:** 面向支付宝/微信支付的高并发 ISV 服务商网关 (上百商户动态接入)
@@ -474,7 +474,7 @@ app.Run();
 
 
 
-### ISV 增强架构 (v1.2 新增)
+### ISV 增强架构 (v1.1 新增)
 
 * **ADR-004: 动态配置 (JIT Configuration)**
 * **变更:** 废弃静态 `IOptions` 单例注入。

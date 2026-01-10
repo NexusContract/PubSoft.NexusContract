@@ -77,7 +77,7 @@ namespace NexusContract.Core.Reflection
         {
             // 确定目标文化：显式指定 > 当前 UI 文化 > 默认 zh-CN
             var targetCulture = culture ?? CultureInfo.CurrentUICulture;
-            var isChinese = targetCulture.Name.StartsWith("zh");
+            bool isChinese = targetCulture.Name.StartsWith("zh");
 
             var sb = new StringBuilder();
             sb.AppendLine("╔════════════════════════════════════════════════════════════════════════╗");
@@ -138,8 +138,8 @@ namespace NexusContract.Core.Reflection
                         DiagnosticSeverity.Warning => "🟡",
                         _ => "⚪"
                     };
-                    var severityText = isChinese ? GetSeverityTextZh(severity) : severity.ToString();
-                    var unit = isChinese ? "项" : "items";
+                    string severityText = isChinese ? GetSeverityTextZh(severity) : severity.ToString();
+                    string unit = isChinese ? "项" : "items";
                     sb.AppendLine($"  {icon} {severityText,-10}: {count,3} {unit}");
                 }
                 sb.AppendLine();
@@ -158,7 +158,7 @@ namespace NexusContract.Core.Reflection
                 }
                 foreach (var (errorCode, count) in errorCodeStats.Take(5))
                 {
-                    var timesText = isChinese ? "次" : "times";
+                    string timesText = isChinese ? "次" : "times";
                     sb.AppendLine($"  [{errorCode}]: {count} {timesText}");
                 }
                 sb.AppendLine();
@@ -209,9 +209,9 @@ namespace NexusContract.Core.Reflection
                         sb.AppendLine($"  {icon} [{diagnostic.ErrorCode}]{location}");
 
                         // 使用 ContractDiagnosticRegistry.Format 生成本地化消息
-                        var localizedMessage = NexusContract.Abstractions.Exceptions.ContractDiagnosticRegistry.Format(
+                        string localizedMessage = NexusContract.Abstractions.Exceptions.ContractDiagnosticRegistry.Format(
                             diagnostic.ErrorCode, targetCulture, diagnostic.ContextArgs);
-                        var firstLine = localizedMessage.Split('\n')[0];
+                        string firstLine = localizedMessage.Split('\n')[0];
                         if (firstLine.Length > 200)
                         {
                             firstLine = firstLine.Substring(0, 197) + "...";

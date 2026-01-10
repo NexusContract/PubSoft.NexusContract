@@ -50,7 +50,7 @@ namespace NexusContract.Hosting.Security
             try
             {
                 _masterKey = Convert.FromBase64String(masterKeyBase64);
-                
+
                 if (_masterKey.Length != 32)
                     throw new ArgumentException("Master key must be 32 bytes (256 bits)", nameof(masterKeyBase64));
             }

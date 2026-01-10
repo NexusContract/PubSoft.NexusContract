@@ -29,7 +29,6 @@ namespace NexusContract.Client
     ///    - 保持扩展性：未来可轻松加入新的支付方供应商
     /// </summary>
     public sealed class NexusGatewayClientFactory(
-        INamingPolicy namingPolicy,
         FrozenDictionary<string, Uri> gatewayMap)
     {
         /// <summary>
@@ -52,18 +51,18 @@ namespace NexusContract.Client
                     $"Gateway '{providerKey}' not found in map. Available: {string.Join(", ", gatewayMap.Keys)}");
             }
 
-            return new NexusGatewayClient(httpClient, namingPolicy, gatewayUri);
+            return new NexusGatewayClient(httpClient, gatewayUri);
         }
 
         /// <summary>
         /// 创建工厂（Builder 模式）
         /// </summary>
-        public static Builder CreateBuilder(INamingPolicy namingPolicy)
+        public static Builder CreateBuilder()
         {
-            return new Builder(namingPolicy);
+            return new Builder();
         }
 
-        public sealed class Builder(INamingPolicy namingPolicy)
+        public sealed class Builder()
         {
             private readonly Dictionary<string, Uri> _gatewayMap = new();
 
@@ -104,7 +103,6 @@ namespace NexusContract.Client
                     throw new InvalidOperationException("At least one gateway must be registered");
 
                 return new NexusGatewayClientFactory(
-                    namingPolicy,
                     _gatewayMap.ToFrozenDictionary());
             }
         }

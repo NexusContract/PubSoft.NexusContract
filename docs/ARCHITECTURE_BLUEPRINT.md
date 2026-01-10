@@ -1,6 +1,6 @@
-# 🏛️ NexusContract Architecture Blueprint v1.2 (Final Execution Release)
+# 🏛️ NexusContract Architecture Blueprint v1.1 (Final Execution Release)
 
-> **Version:** 1.2 (ISV Multi-Tenant Execution Release)
+> **Version:** 1.1 (ISV Multi-Tenant Execution Release)
 > **Status:** ✅ Approved
 > **Date:** January 10, 2026
 > **Scenario:** High-concurrency ISV gateway for Alipay/WeChat Pay (hundreds of merchants dynamic access)

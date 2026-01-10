@@ -59,14 +59,14 @@ namespace NexusContract.Client.DependencyInjection
             services.AddHttpClient();
             services.AddSingleton(policy);
 
-            return new NexusContractClientBuilder(services, policy);
+            return new NexusContractClientBuilder(services);
         }
     }
 
     /// <summary>
     /// NexusGateway 客户端构建器（.NET 10 原生）
     /// </summary>
-    public sealed class NexusContractClientBuilder(IServiceCollection services, INamingPolicy namingPolicy)
+    public sealed class NexusContractClientBuilder(IServiceCollection services)
     {
         private readonly Dictionary<string, Uri> _gateways = new();
 
@@ -120,7 +120,7 @@ namespace NexusContract.Client.DependencyInjection
             // 注册工厂
             services.AddSingleton<NexusGatewayClientFactory>(sp =>
             {
-                return new NexusGatewayClientFactory(namingPolicy, frozenMap);
+                return new NexusGatewayClientFactory(frozenMap);
             });
 
             // 注册便利访问：直接注入 NexusGatewayClient（默认使用第一个网关）

@@ -29,18 +29,13 @@ namespace NexusContract.Hosting.Security
     /// - 内存中保存的是明文（避免每次签名都解密）
     /// - 传输加密：Redis 连接使用 TLS
     /// </summary>
-    public sealed class ProtectedPrivateKeyConverter : JsonConverter<string>
+    /// <remarks>
+    /// 构造加密转换器
+    /// </remarks>
+    /// <param name="securityProvider">安全提供程序（从 DI 容器注入）</param>
+    public sealed class ProtectedPrivateKeyConverter(ISecurityProvider securityProvider) : JsonConverter<string>
     {
-        private readonly ISecurityProvider _securityProvider;
-
-        /// <summary>
-        /// 构造加密转换器
-        /// </summary>
-        /// <param name="securityProvider">安全提供程序（从 DI 容器注入）</param>
-        public ProtectedPrivateKeyConverter(ISecurityProvider securityProvider)
-        {
-            _securityProvider = securityProvider ?? throw new ArgumentNullException(nameof(securityProvider));
-        }
+        private readonly ISecurityProvider _securityProvider = securityProvider ?? throw new ArgumentNullException(nameof(securityProvider));
 
         /// <summary>
         /// 反序列化（从 Redis 读取时解密）

@@ -55,8 +55,8 @@ namespace NexusContract.Abstractions.Contracts
         /// <param name="providerName">Provider 标识（可选）</param>
         public TenantContext(string realmId, string profileId, string providerName = null)
         {
-            RealmId = realmId;
-            ProfileId = profileId;
+            RealmId = realmId ?? throw new ArgumentNullException(nameof(realmId));
+            ProfileId = profileId ?? throw new ArgumentNullException(nameof(profileId));
             ProviderName = providerName;
             Metadata = new Dictionary<string, object>();
         }
@@ -96,7 +96,7 @@ namespace NexusContract.Abstractions.Contracts
         /// </summary>
         public override string ToString()
         {
-            var provider = string.IsNullOrEmpty(ProviderName) ? "Unknown" : ProviderName;
+            string provider = string.IsNullOrEmpty(ProviderName) ? "Unknown" : ProviderName;
             return $"[{provider}] Realm:{RealmId}, Profile:{ProfileId}";
         }
     }

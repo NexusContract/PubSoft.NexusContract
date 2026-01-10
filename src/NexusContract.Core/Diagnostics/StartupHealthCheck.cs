@@ -95,9 +95,9 @@ namespace NexusContract.Core.Diagnostics
 
             // 执行 Preload（已修改为 per-type report）
             var report = NexusContractMetadataRegistry.Instance.Preload(
-                typeList, 
-                warmup, 
-                encryptor, 
+                typeList,
+                warmup,
+                encryptor,
                 decryptor);
 
             // 输出摘要
@@ -110,7 +110,7 @@ namespace NexusContract.Core.Diagnostics
                 Console.WriteLine("❌ Contract validation failed. See detailed report above.");
                 Console.WriteLine("💡 Tip: Call report.PrintToConsole(includeDetails: true) for full details.");
                 Console.WriteLine();
-                
+
                 throw new ContractIncompleteException(report);
             }
 

@@ -46,7 +46,7 @@ namespace NexusContract.Core.Exceptions
         /// </summary>
         public string Summary { get; }
 
-        public ContractIncompleteException(DiagnosticReport report) 
+        public ContractIncompleteException(DiagnosticReport report)
             : base(GenerateMessage(report))
         {
             Report = report ?? throw new ArgumentNullException(nameof(report));
@@ -56,7 +56,7 @@ namespace NexusContract.Core.Exceptions
             Summary = $"Contract validation failed: {FailedContractCount} contracts, {ErrorCount} errors ({CriticalCount} critical)";
         }
 
-        public ContractIncompleteException(DiagnosticReport report, string customMessage) 
+        public ContractIncompleteException(DiagnosticReport report, string customMessage)
             : base(customMessage)
         {
             Report = report ?? throw new ArgumentNullException(nameof(report));
@@ -70,11 +70,11 @@ namespace NexusContract.Core.Exceptions
         {
             if (report == null) return "Contract validation failed (no report available)";
 
-            var errorCount = report.Diagnostics.Count(d => d.Severity >= DiagnosticSeverity.Error);
-            var criticalCount = report.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Critical);
-            var failedCount = report.FailedCount;
+            int errorCount = report.Diagnostics.Count(d => d.Severity >= DiagnosticSeverity.Error);
+            int criticalCount = report.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Critical);
+            int failedCount = report.FailedCount;
 
-            var msg = $"❌ Contract validation failed:\n" +
+            string msg = $"❌ Contract validation failed:\n" +
                       $"  - Failed contracts: {failedCount}\n" +
                       $"  - Total errors: {errorCount} ({criticalCount} critical)\n\n";
 
@@ -83,7 +83,7 @@ namespace NexusContract.Core.Exceptions
             if (failedContracts.Any())
             {
                 msg += "Failed contracts:\n";
-                foreach (var contractName in failedContracts)
+                foreach (string? contractName in failedContracts)
                 {
                     var errors = report.Diagnostics
                         .Where(d => d.ContractName == contractName && d.Severity >= DiagnosticSeverity.Error)

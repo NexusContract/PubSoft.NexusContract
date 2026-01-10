@@ -202,7 +202,7 @@ namespace NexusContract.Providers.Alipay
                 {
                     throw new InvalidOperationException("Neither INexusTransport nor HttpClient is available");
                 }
-                
+
                 httpResponse.EnsureSuccessStatusCode();
 
                 // 7. 解析响应

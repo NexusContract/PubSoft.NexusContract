@@ -50,28 +50,28 @@ namespace NexusContract.Abstractions.Configuration
     /// </summary>
     public interface IConfigurationResolver
     {
-        /// <summary>
-        /// JIT 解析配置（支持 L1/L2 缓存）
-        /// 
-        /// 工作流：
-        /// 1. 查询 L1 内存缓存 → 命中则返回
-        /// 2. 查询 L2 Redis 缓存 → 命中则更新 L1 并返回
-        /// 3. 查询数据库（ITenantRepository）→ 更新 L1/L2 并返回
-        /// 4. 未找到配置 → 抛出 NexusTenantException.NotFound
-        /// 
-        /// 并发控制：
-        /// - 使用 SemaphoreSlim 防止缓存击穿（同一配置并发查询）
-        /// - 首个请求查询数据库，后续请求等待结果
-        /// 
-        /// 异常处理：
-        /// - 配置未找到：抛出 NexusTenantException.NotFound
-        /// - 配置无效：抛出 NexusTenantException.InvalidIdentifier
-        /// - 数据库异常：抛出原始异常（由调用方处理）
-        /// </summary>
-        /// <param name="identity">租户身份标识（包含 Provider + Realm + Profile）</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>Provider 物理配置（含私钥）</returns>
-        /// <exception cref="NexusTenantException">配置未找到或无效</exception>
+    /// <summary>
+    /// JIT 解析配置（支持 L1/L2 缓存）
+    /// 
+    /// 工作流：
+    /// 1. 查询 L1 内存缓存 → 命中则返回
+    /// 2. 查询 L2 Redis 缓存 → 命中则更新 L1 并返回
+    /// 3. 查询数据库（ITenantRepository）→ 更新 L1/L2 并返回
+    /// 4. 未找到配置 → 抛出 NexusTenantException.NotFound
+    /// 
+    /// 并发控制：
+    /// - 使用 SemaphoreSlim 防止缓存击穿（同一配置并发查询）
+    /// - 首个请求查询数据库，后续请求等待结果
+    /// 
+    /// 异常处理：
+    /// - 配置未找到：抛出 NexusTenantException.NotFound
+    /// - 配置无效：抛出 NexusTenantException.InvalidIdentifier
+    /// - 数据库异常：抛出原始异常（由调用方处理）
+    /// </summary>
+    /// <param name="identity">租户身份标识（包含 Provider + Realm + Profile）</param>
+    /// <param name="ct">取消令牌</param>
+    /// <returns>Provider 物理配置（含私钥）</returns>
+    /// <exception cref="NexusTenantException">配置未找到或无效</exception>
         Task<IProviderConfiguration> ResolveAsync(
             ITenantIdentity identity,
             CancellationToken ct = default);

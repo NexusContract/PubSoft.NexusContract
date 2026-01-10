@@ -89,6 +89,12 @@ namespace NexusContract.Core.Configuration
         {
             // 反序列化后需要手动调用 Validate 确保完整性
             ExtendedSettings = new ReadOnlyDictionary<string, object>(new Dictionary<string, object>());
+            ProviderName = string.Empty;
+            AppId = string.Empty;
+            MerchantId = string.Empty;
+            PrivateKey = string.Empty;
+            PublicKey = string.Empty;
+            GatewayUrl = new Uri("http://localhost");
         }
 
         /// <summary>
@@ -124,7 +130,7 @@ namespace NexusContract.Core.Configuration
             PublicKey = publicKey;
             GatewayUrl = gatewayUrl;
             IsSandbox = isSandbox;
-            
+
             // 使用 ReadOnlyDictionary 防御性拷贝
             ExtendedSettings = extendedSettings != null
                 ? new ReadOnlyDictionary<string, object>(new Dictionary<string, object>(extendedSettings))
@@ -173,7 +179,7 @@ namespace NexusContract.Core.Configuration
         /// <returns>配置值</returns>
         public T GetExtendedSetting<T>(string key, T defaultValue = default)
         {
-            if (ExtendedSettings.TryGetValue(key, out var value) && value is T typedValue)
+            if (ExtendedSettings.TryGetValue(key, out object? value) && value is T typedValue)
                 return typedValue;
 
             return defaultValue;
@@ -218,7 +224,7 @@ namespace NexusContract.Core.Configuration
         /// </summary>
         public override string ToString()
         {
-            var env = IsSandbox ? "Sandbox" : "Production";
+            string env = IsSandbox ? "Sandbox" : "Production";
             return $"ProviderSettings[Provider={ProviderName}, AppId={AppId}, MerchantId={MerchantId}, Env={env}]";
         }
 

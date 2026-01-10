@@ -35,7 +35,6 @@ namespace NexusContract.Client
     /// </summary>
     public sealed class NexusGatewayClient(
         HttpClient httpClient,
-        INamingPolicy namingPolicy,
         Uri? baseUri = null)
     {
         private readonly Uri _baseUri = baseUri ?? httpClient.BaseAddress ?? throw new InvalidOperationException(

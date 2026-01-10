@@ -100,12 +100,7 @@ namespace NexusContract.Hosting.Factories
             if (string.IsNullOrEmpty(profileId))
                 throw NexusTenantException.MissingIdentifier("ProfileId (app_id / sub_mch_id)");
 
-            return new TenantContext
-            {
-                RealmId = realmId,
-                ProfileId = profileId,
-                ProviderName = providerName
-            };
+            return new TenantContext(realmId, profileId, providerName);
         }
 
         /// <summary>
@@ -117,7 +112,7 @@ namespace NexusContract.Hosting.Factories
             params string[] knownHeaders)
         {
             // 优先检查标准请求头
-            foreach (var header in knownHeaders)
+            foreach (string header in knownHeaders)
             {
                 if (context.Request.Headers.TryGetValue(header, out var value) &&
                     !string.IsNullOrWhiteSpace(value))
@@ -178,9 +173,9 @@ namespace NexusContract.Hosting.Factories
 
                 var root = jsonDoc.RootElement;
 
-                var realmId = FindJsonValue(root, RealmIdAliases);
-                var profileId = FindJsonValue(root, ProfileIdAliases);
-                var providerName = FindJsonValue(root, ProviderNameAliases);
+                string? realmId = FindJsonValue(root, RealmIdAliases);
+                string? profileId = FindJsonValue(root, ProfileIdAliases);
+                string? providerName = FindJsonValue(root, ProviderNameAliases);
 
                 return (realmId, profileId, providerName);
             }
@@ -204,7 +199,7 @@ namespace NexusContract.Hosting.Factories
                 if (aliases.Contains(property.Name) &&
                     property.Value.ValueKind == JsonValueKind.String)
                 {
-                    var value = property.Value.GetString();
+                    string? value = property.Value.GetString();
                     if (!string.IsNullOrWhiteSpace(value))
                         return value.Trim();
                 }

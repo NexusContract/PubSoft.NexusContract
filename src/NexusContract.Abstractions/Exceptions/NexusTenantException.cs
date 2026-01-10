@@ -37,6 +37,7 @@ namespace NexusContract.Abstractions.Exceptions
             : base(message)
         {
             ErrorCode = "TENANT_INVALID";
+            TenantIdentifier = string.Empty;
         }
 
         /// <summary>
@@ -48,6 +49,7 @@ namespace NexusContract.Abstractions.Exceptions
             : base(message, innerException)
         {
             ErrorCode = "TENANT_INVALID";
+            TenantIdentifier = string.Empty;
         }
 
         /// <summary>
@@ -60,7 +62,7 @@ namespace NexusContract.Abstractions.Exceptions
             : base(message)
         {
             ErrorCode = errorCode ?? "TENANT_INVALID";
-            TenantIdentifier = tenantIdentifier;
+            TenantIdentifier = tenantIdentifier ?? string.Empty;
         }
 
         /// <summary>
@@ -78,7 +80,7 @@ namespace NexusContract.Abstractions.Exceptions
             : base(message, innerException)
         {
             ErrorCode = errorCode ?? "TENANT_INVALID";
-            TenantIdentifier = tenantIdentifier;
+            TenantIdentifier = tenantIdentifier ?? string.Empty;
         }
 
         /// <summary>
@@ -97,7 +99,7 @@ namespace NexusContract.Abstractions.Exceptions
         /// </summary>
         public static NexusTenantException Unauthorized(string tenantIdentifier, string reason = null)
         {
-            var message = reason != null
+            string message = reason != null
                 ? $"Tenant unauthorized: {tenantIdentifier}. Reason: {reason}"
                 : $"Tenant unauthorized: {tenantIdentifier}";
 

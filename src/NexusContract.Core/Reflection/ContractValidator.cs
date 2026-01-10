@@ -47,7 +47,7 @@ namespace NexusContract.Core.Reflection
             if (contractType == null) throw new ArgumentNullException(nameof(contractType));
             if (report == null) throw new ArgumentNullException(nameof(report));
 
-            var contractName = contractType.Name;
+            string contractName = contractType.Name;
 
             // 1. NXC101: 验证 Operation 意图声明
             var opAttr = contractType.GetCustomAttribute<ApiOperationAttribute>();
@@ -68,7 +68,7 @@ namespace NexusContract.Core.Reflection
             var responseType = GetResponseType(contractType);
             if (opAttr.Interaction == InteractionKind.OneWay && responseType != typeof(EmptyResponse))
             {
-                report.Add(ContractDiagnostic.Create(contractName, "NXC103", 
+                report.Add(ContractDiagnostic.Create(contractName, "NXC103",
                     contextArgs: new object[] { opAttr.OperationId, responseType?.Name ?? "null" }));
             }
 
@@ -132,8 +132,8 @@ namespace NexusContract.Core.Reflection
             // NXC104: 深度红线校验
             if (currentDepth > MaxDepth)
             {
-                report.Add(ContractDiagnostic.Create(rootContractName, "NXC104", 
-                    propertyPath: currentPath, 
+                report.Add(ContractDiagnostic.Create(rootContractName, "NXC104",
+                    propertyPath: currentPath,
                     contextArgs: new object[] { MaxDepth, currentPath, type.Name }));
                 return; // 触碰深度硬边界，停止该分支向下探测
             }
@@ -141,10 +141,10 @@ namespace NexusContract.Core.Reflection
             // NXC105: 循环引用检测
             if (visited.Contains(type))
             {
-                report.Add(ContractDiagnostic.Create(rootContractName, "NXC105", 
-                    propertyPath: currentPath, 
+                report.Add(ContractDiagnostic.Create(rootContractName, "NXC105",
+                    propertyPath: currentPath,
                     contextArgs: new object[] { currentPath, type.Name }));
-                return; 
+                return;
             }
 
             visited.Add(type);
@@ -160,7 +160,7 @@ namespace NexusContract.Core.Reflection
                 // NXC106: 安全红线：加密字段必须锁定路径
                 if (fieldAttr.IsEncrypted && string.IsNullOrEmpty(fieldAttr.Name))
                 {
-                    report.Add(ContractDiagnostic.Create(rootContractName, "NXC106", 
+                    report.Add(ContractDiagnostic.Create(rootContractName, "NXC106",
                         propertyName: prop.Name,
                         propertyPath: memberPath,
                         contextArgs: new object[] { type.Name, prop.Name }));
@@ -177,7 +177,7 @@ namespace NexusContract.Core.Reflection
                 {
                     if (currentDepth > 1 && string.IsNullOrEmpty(fieldAttr.Name))
                     {
-                        report.Add(ContractDiagnostic.Create(rootContractName, "NXC107", 
+                        report.Add(ContractDiagnostic.Create(rootContractName, "NXC107",
                             propertyName: prop.Name,
                             propertyPath: memberPath,
                             contextArgs: new object[] { type.Name, prop.Name, currentDepth }));

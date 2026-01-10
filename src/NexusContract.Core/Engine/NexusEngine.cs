@@ -55,20 +55,14 @@ namespace NexusContract.Core.Engine
     /// - 线程安全（ConcurrentDictionary 保证）
     /// - 支持运行时动态注册 Provider
     /// </summary>
-    public sealed class NexusEngine : INexusEngine
+    /// <remarks>
+    /// 构造 NexusEngine
+    /// </remarks>
+    /// <param name="configResolver">配置解析器</param>
+    public sealed class NexusEngine(IConfigurationResolver configResolver) : INexusEngine
     {
-        private readonly IConfigurationResolver _configResolver;
-        private readonly ConcurrentDictionary<string, IProvider> _providerRegistry;
-
-        /// <summary>
-        /// 构造 NexusEngine
-        /// </summary>
-        /// <param name="configResolver">配置解析器</param>
-        public NexusEngine(IConfigurationResolver configResolver)
-        {
-            _configResolver = configResolver ?? throw new ArgumentNullException(nameof(configResolver));
-            _providerRegistry = new ConcurrentDictionary<string, IProvider>(StringComparer.OrdinalIgnoreCase);
-        }
+        private readonly IConfigurationResolver _configResolver = configResolver ?? throw new ArgumentNullException(nameof(configResolver));
+        private readonly ConcurrentDictionary<string, IProvider> _providerRegistry = new ConcurrentDictionary<string, IProvider>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// 注册 Provider
@@ -124,7 +118,7 @@ namespace NexusContract.Core.Engine
                     .ConfigureAwait(false);
 
                 // 2. Provider 路由（基于配置的实现标签动态决策）
-                var providerKey = ResolveImplementationName(identity, configuration);
+                string providerKey = ResolveImplementationName(identity, configuration);
                 var provider = GetProvider(providerKey);
 
                 // 3. 执行请求

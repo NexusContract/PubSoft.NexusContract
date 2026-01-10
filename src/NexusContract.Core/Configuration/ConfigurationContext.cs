@@ -81,6 +81,7 @@ namespace NexusContract.Core.Configuration
 
             ProviderName = providerName;
             RealmId = realmId;
+            ProfileId = string.Empty;
             Metadata = new Dictionary<string, object>();
         }
 
@@ -93,7 +94,7 @@ namespace NexusContract.Core.Configuration
         /// <returns>元数据值</returns>
         public T GetMetadata<T>(string key, T defaultValue = default)
         {
-            if (Metadata.TryGetValue(key, out var value) && value is T typedValue)
+            if (Metadata.TryGetValue(key, out object? value) && value is T typedValue)
                 return typedValue;
 
             return defaultValue;
@@ -133,7 +134,7 @@ namespace NexusContract.Core.Configuration
         /// </summary>
         public override string ToString()
         {
-            var profile = string.IsNullOrWhiteSpace(ProfileId) ? "N/A" : ProfileId;
+            string profile = string.IsNullOrWhiteSpace(ProfileId) ? "N/A" : ProfileId;
             return $"ConfigurationContext[Provider={ProviderName}, Realm={RealmId}, Profile={profile}]";
         }
 
@@ -161,8 +162,8 @@ namespace NexusContract.Core.Configuration
             unchecked
             {
                 int hash = 17;
-                hash = hash * 31 + (ProviderName != null 
-                    ? StringComparer.OrdinalIgnoreCase.GetHashCode(ProviderName) 
+                hash = hash * 31 + (ProviderName != null
+                    ? StringComparer.OrdinalIgnoreCase.GetHashCode(ProviderName)
                     : 0);
                 hash = hash * 31 + (RealmId?.GetHashCode() ?? 0);
                 hash = hash * 31 + (ProfileId?.GetHashCode() ?? 0);

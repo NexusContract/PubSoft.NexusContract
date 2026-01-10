@@ -41,7 +41,7 @@ namespace NexusContract.Hosting.Yarp
     public sealed class YarpTransport : INexusTransport, IDisposable
     {
         private static readonly ActivitySource ActivitySource = new ActivitySource("NexusContract.Yarp", "1.2.0");
-        
+
         private readonly HttpClient _httpClient;
         private readonly ILogger<YarpTransport> _logger;
         private readonly YarpTransportOptions _options;
@@ -83,9 +83,9 @@ namespace NexusContract.Hosting.Yarp
                 throw new ArgumentNullException(nameof(request));
 
             string host = request.RequestUri?.Host ?? "unknown";
-            
+
             // 创建 OpenTelemetry Activity（用于分布式追踪）
-            using Activity? activity = _options.EnableMetrics 
+            using Activity? activity = _options.EnableMetrics
                 ? ActivitySource.StartActivity("YarpTransport.SendAsync", ActivityKind.Client)
                 : null;
 
@@ -99,7 +99,7 @@ namespace NexusContract.Hosting.Yarp
 
             Stopwatch stopwatch = Stopwatch.StartNew();
             int retryCount = 0;
-            
+
             try
             {
                 // 通过 Polly 弹性管道执行（自动重试 + 熔断）
@@ -107,13 +107,13 @@ namespace NexusContract.Hosting.Yarp
                     async ct =>
                     {
                         HttpResponseMessage result = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
-                        
+
                         // 记录每次重试
                         if (retryCount > 0 && activity != null)
                         {
                             activity.SetTag("nexus.retry_count", retryCount);
                         }
-                        
+
                         return result;
                     },
                     cancellationToken).ConfigureAwait(false);
@@ -123,9 +123,9 @@ namespace NexusContract.Hosting.Yarp
                 // 更新性能指标
                 if (_options.EnableMetrics)
                 {
-                    _hostMetrics.AddOrUpdate(host, stopwatch.ElapsedMilliseconds, (_, old) => 
+                    _hostMetrics.AddOrUpdate(host, stopwatch.ElapsedMilliseconds, (_, old) =>
                         (old + stopwatch.ElapsedMilliseconds) / 2); // 简单移动平均
-                    
+
                     if (activity != null)
                     {
                         activity.SetTag("http.status_code", (int)response.StatusCode);
@@ -151,14 +151,14 @@ namespace NexusContract.Hosting.Yarp
             catch (BrokenCircuitException ex)
             {
                 stopwatch.Stop();
-                
+
                 if (activity != null)
                 {
                     activity.SetTag("nexus.circuit_state", "open");
                     activity.SetTag("error", true);
                     activity.SetStatus(ActivityStatusCode.Error, "Circuit breaker is open");
                 }
-                
+
                 _logger.LogError(ex,
                     "Circuit breaker is open for {Host}. Fast-failing request.",
                     host);
@@ -167,14 +167,14 @@ namespace NexusContract.Hosting.Yarp
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                
+
                 if (activity != null)
                 {
                     activity.SetTag("error", true);
                     activity.SetTag("nexus.duration_ms", stopwatch.ElapsedMilliseconds);
                     activity.SetStatus(ActivityStatusCode.Error, ex.Message);
                 }
-                
+
                 _logger.LogError(ex,
                     "YARP Transport failed: {Method} {Uri} (after {Duration}ms)",
                     request.Method,
@@ -236,7 +236,7 @@ namespace NexusContract.Hosting.Yarp
             return new ResiliencePipelineBuilder<HttpResponseMessage>()
                 // 1. 超时策略（最外层）
                 .AddTimeout(_options.RequestTimeout)
-                
+
                 // 2. 熔断器策略
                 .AddCircuitBreaker(new CircuitBreakerStrategyOptions<HttpResponseMessage>
                 {
@@ -247,7 +247,7 @@ namespace NexusContract.Hosting.Yarp
                     ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
                         .Handle<HttpRequestException>()
                         .Handle<TaskCanceledException>()
-                        .HandleResult(response => 
+                        .HandleResult(response =>
                             response.StatusCode == HttpStatusCode.RequestTimeout ||
                             response.StatusCode == HttpStatusCode.ServiceUnavailable ||
                             response.StatusCode == HttpStatusCode.GatewayTimeout),
@@ -269,7 +269,7 @@ namespace NexusContract.Hosting.Yarp
                         return ValueTask.CompletedTask;
                     }
                 })
-                
+
                 // 3. 重试策略（指数退避）
                 .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
                 {
@@ -295,7 +295,7 @@ namespace NexusContract.Hosting.Yarp
                         return ValueTask.CompletedTask;
                     }
                 })
-                
+
                 .Build();
         }
 

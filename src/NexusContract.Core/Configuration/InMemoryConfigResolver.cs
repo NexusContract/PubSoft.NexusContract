@@ -68,7 +68,7 @@ namespace NexusContract.Core.Configuration
             {
                 foreach (var config in presetConfigurations)
                 {
-                    var key = BuildCacheKey(config.ProviderName, config.MerchantId, config.AppId);
+                    string key = BuildCacheKey(config.ProviderName, config.MerchantId, config.AppId);
                     _cache[key] = config;
                 }
             }
@@ -124,7 +124,7 @@ namespace NexusContract.Core.Configuration
             if (identity == null)
                 throw new ArgumentNullException(nameof(identity));
 
-            var key = BuildCacheKey(identity.ProviderName, identity.RealmId, identity.ProfileId);
+            string key = BuildCacheKey(identity.ProviderName, identity.RealmId, identity.ProfileId);
 
             if (_cache.TryGetValue(key, out var settings))
             {
@@ -146,7 +146,7 @@ namespace NexusContract.Core.Configuration
             if (identity == null)
                 throw new ArgumentNullException(nameof(identity));
 
-            var key = BuildCacheKey(identity.ProviderName, identity.RealmId, identity.ProfileId);
+            string key = BuildCacheKey(identity.ProviderName, identity.RealmId, identity.ProfileId);
             _cache.TryRemove(key, out _);
 
             return Task.CompletedTask;
@@ -170,7 +170,7 @@ namespace NexusContract.Core.Configuration
             if (settings == null)
                 throw new ArgumentNullException(nameof(settings));
 
-            var key = BuildCacheKey(settings.ProviderName, settings.MerchantId, settings.AppId);
+            string key = BuildCacheKey(settings.ProviderName, settings.MerchantId, settings.AppId);
             _cache[key] = settings;
         }
 
@@ -183,7 +183,7 @@ namespace NexusContract.Core.Configuration
         /// <returns>是否删除成功</returns>
         public bool Remove(string providerName, string realmId, string profileId)
         {
-            var key = BuildCacheKey(providerName, realmId, profileId);
+            string key = BuildCacheKey(providerName, realmId, profileId);
             return _cache.TryRemove(key, out _);
         }
 
@@ -230,9 +230,12 @@ namespace NexusContract.Core.Configuration
         /// </summary>
         private void LoadConfigurationsFromFile()
         {
+            if (string.IsNullOrEmpty(_configFilePath))
+                return;
+
             try
             {
-                var json = File.ReadAllText(_configFilePath);
+                string json = File.ReadAllText(_configFilePath);
                 var configs = JsonSerializer.Deserialize<List<ProviderSettings>>(json, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
@@ -244,13 +247,13 @@ namespace NexusContract.Core.Configuration
                     foreach (var config in configs)
                     {
                         // 验证配置完整性
-                        if (!config.Validate(out var error))
+                        if (!config.Validate(out string? error))
                         {
                             throw new InvalidOperationException(
                                 $"Invalid configuration in file: {error}");
                         }
 
-                        var key = BuildCacheKey(config.ProviderName, config.MerchantId, config.AppId);
+                        string key = BuildCacheKey(config.ProviderName, config.MerchantId, config.AppId);
                         _cache[key] = config;
                     }
                 }
@@ -284,8 +287,8 @@ namespace NexusContract.Core.Configuration
         /// </summary>
         private static ProviderSettings MaskSensitiveData(ProviderSettings original)
         {
-            var maskedPrivateKey = MaskString(original.PrivateKey);
-            var maskedPublicKey = MaskString(original.PublicKey);
+            string maskedPrivateKey = MaskString(original.PrivateKey);
+            string maskedPublicKey = MaskString(original.PublicKey);
 
             return new ProviderSettings(
                 original.ProviderName,

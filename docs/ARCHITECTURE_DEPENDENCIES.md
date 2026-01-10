@@ -1,4 +1,4 @@
-# NexusContract v1.2 架构依赖关系
+# NexusContract v1.1 架构依赖关系
 
 **设计原则：依赖倒置原则 (DIP) + 接口隔离原则 (ISP)**
 

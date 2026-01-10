@@ -65,13 +65,13 @@ namespace NexusContract.Hosting.Yarp
                     MaxConnectionsPerServer = options.MaxConnectionsPerServer,
                     PooledConnectionIdleTimeout = options.PooledConnectionIdleTimeout,
                     PooledConnectionLifetime = options.PooledConnectionLifetime,
-                    
+
                     // 启用 HTTP/2
                     EnableMultipleHttp2Connections = true,
-                    
+
                     // 自动解压缩
                     AutomaticDecompression = System.Net.DecompressionMethods.All,
-                    
+
                     // 超时设置
                     ConnectTimeout = TimeSpan.FromSeconds(10)
                 };

@@ -69,34 +69,26 @@ namespace NexusContract.Providers.Alipay
     /// - v1.0.0：基础适配器实现
     /// - 向后兼容：不影响直接使用 AlipayProvider 的代码
     /// </summary>
-    public sealed class AlipayProviderAdapter : IProvider
+    /// <remarks>
+    /// 构造适配器
+    /// </remarks>
+    /// <param name="transport">Nexus 传输层（推荐，生产级）</param>
+    /// <param name="gateway">Nexus 网关（投影/回填引擎）</param>
+    /// <param name="namingPolicy">命名策略（默认 SnakeCase）</param>
+    public sealed class AlipayProviderAdapter(
+        INexusTransport transport,
+        NexusGateway gateway,
+        INamingPolicy? namingPolicy = null) : IProvider
     {
-        private readonly INexusTransport _transport;
-        private readonly NexusGateway _gateway;
-        private readonly INamingPolicy _namingPolicy;
-        private readonly ConcurrentDictionary<string, AlipayProviderConfig> _configCache;
+        private readonly INexusTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        private readonly NexusGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
+        private readonly INamingPolicy _namingPolicy = namingPolicy ?? new SnakeCaseNamingPolicy();
+        private readonly ConcurrentDictionary<string, AlipayProviderConfig> _configCache = new ConcurrentDictionary<string, AlipayProviderConfig>(StringComparer.Ordinal);
 
         /// <summary>
         /// Provider 标识（用于 Engine 路由）
         /// </summary>
         public string ProviderName => "Alipay";
-
-        /// <summary>
-        /// 构造适配器
-        /// </summary>
-        /// <param name="transport">Nexus 传输层（推荐，生产级）</param>
-        /// <param name="gateway">Nexus 网关（投影/回填引擎）</param>
-        /// <param name="namingPolicy">命名策略（默认 SnakeCase）</param>
-        public AlipayProviderAdapter(
-            INexusTransport transport,
-            NexusGateway gateway,
-            INamingPolicy? namingPolicy = null)
-        {
-            _transport = transport ?? throw new ArgumentNullException(nameof(transport));
-            _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
-            _namingPolicy = namingPolicy ?? new SnakeCaseNamingPolicy();
-            _configCache = new ConcurrentDictionary<string, AlipayProviderConfig>(StringComparer.Ordinal);
-        }
 
         /// <summary>
         /// 执行支付宝请求（IProvider 接口实现）

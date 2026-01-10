@@ -44,7 +44,7 @@ namespace NexusContract.Hosting.Endpoints
     /// - 泛型约束：TRequest : IApiRequest&lt;TResponse&gt;
     /// - .NET 10 Primary Constructors 简化注入
     /// </summary>
-    public abstract class NexusEndpoint<TRequest, TResponse>(INexusEngine engine) 
+    public abstract class NexusEndpoint<TRequest, TResponse>(INexusEngine engine)
         : Endpoint<TRequest, TResponse>
         where TRequest : IApiRequest<TResponse>, new()
         where TResponse : class, new()
@@ -56,7 +56,7 @@ namespace NexusContract.Hosting.Endpoints
         {
             // TODO: 从 NexusContractMetadataRegistry 获取 OperationId 并转换为路由
             // 例如：OperationId "alipay.trade.create" → POST /alipay/trade/create
-            
+
             // 临时实现：使用默认路由
             Post($"/api/{typeof(TRequest).Name}");
             AllowAnonymous(); // TODO: 根据实际需求配置认证
@@ -88,7 +88,7 @@ namespace NexusContract.Hosting.Endpoints
     /// }
     /// </code>
     /// </summary>
-    public abstract class NexusEndpoint<TRequest>(INexusEngine engine) 
+    public abstract class NexusEndpoint<TRequest>(INexusEngine engine)
         : NexusEndpoint<TRequest, Abstractions.EmptyResponse>(engine)
         where TRequest : IApiRequest<Abstractions.EmptyResponse>, new()
     {

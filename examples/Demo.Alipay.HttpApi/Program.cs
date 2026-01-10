@@ -19,16 +19,17 @@ using NexusContract.Hosting.Yarp;
 using NexusContract.Providers.Alipay;
 using NexusContract.Core.Reflection;
 using System.Text.Json;
+using System.Threading;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ==================== 步骤1：注册 Redis（L2缓存 + 跨实例失效通知） ====================
-var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+string redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 var redis = ConnectionMultiplexer.Connect(redisConnectionString);
 builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
 // ==================== 步骤2：注册安全提供者（AES加密/解密 PrivateKey） ====================
-var masterKey = builder.Configuration["Security:MasterKey"] ?? "DEMO-MASTER-KEY-32-BYTES-LONG!"; // 生产环境必须从安全存储加载
+string masterKey = builder.Configuration["Security:MasterKey"] ?? "DEMO-MASTER-KEY-32-BYTES-LONG!"; // 生产环境必须从安全存储加载
 var securityProvider = new AesSecurityProvider(masterKey);
 builder.Services.AddSingleton<ISecurityProvider>(securityProvider);
 
@@ -58,11 +59,11 @@ builder.Services.AddSingleton<INexusEngine>(sp =>
     var transport = sp.GetRequiredService<INexusTransport>();
     var gateway = new NexusGateway(new NexusContract.Core.Policies.Impl.SnakeCaseNamingPolicy());
     var engine = new NexusEngine(configResolver);
-    
+
     // 注册支付宝提供商适配器（桥接 IProvider → AlipayProvider）
     var alipayAdapter = new AlipayProviderAdapter(transport, gateway);
     engine.RegisterProvider("Alipay", alipayAdapter);
-    
+
     return engine;
 });
 
@@ -73,7 +74,7 @@ var app = builder.Build();
 
 // ==================== 步骤7：传输层预热（HTTP/2连接池初始化） ====================
 var transport = app.Services.GetRequiredService<INexusTransport>();
-await transport.WarmupAsync(default);
+await transport.WarmupAsync(new[] { "https://openapi.alipay.com" }, CancellationToken.None);
 
 // ==================== 步骤8：配置中间件 ====================
 app.UseFastEndpoints(config =>
@@ -87,24 +88,7 @@ app.MapGet("/health", () => new
     status = "healthy",
     timestamp = DateTime.UtcNow,
     architecture = "ISV Multi-Tenant (NexusEngine)",
-    providers = new[] { "Alipay" }
-});
-app.MapGet("/config-cache", () =>
-{
-    var adapter = (AlipayProviderAdapter)app.Services.GetRequiredService<INexusEngine>()
-        .GetType()
-        .GetField("_providers", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-        ?.GetValue(app.Services.GetRequiredService<INexusEngine>())
-        ?.GetType()
-        .GetProperty("Values")
-        ?.GetValue(null);
-    
-    return new
-    {
-        status = "config-cache-info",
-        message = "AlipayProviderAdapter 缓存轻量级配置对象，不缓存 Provider 实例",
-        note = "每个租户配置约 1KB，支持动态 JIT 加载"
-    };
+    providers = new[] { "Alipay" }!
 });
 
 // ==================== 步骤10：启动期契约健康检查（Fail-Fast + 全量诊断）====================
@@ -121,11 +105,11 @@ try
     );
 
     Console.WriteLine($"\n✅ 契约健康检查通过：{report.SuccessCount} 个契约已验证");
-    
+
     if (builder.Environment.IsDevelopment())
     {
-        var jsonReport = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.GenerateJsonReport(
-            report, 
+        string jsonReport = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.GenerateJsonReport(
+            report,
             appId: "Demo.Alipay.HttpApi",
             environment: builder.Environment.EnvironmentName
         );
@@ -141,17 +125,20 @@ catch (NexusContract.Core.Exceptions.ContractIncompleteException ex)
     Console.Error.WriteLine($"   失败契约数：{ex.FailedContractCount}");
     Console.Error.WriteLine($"   错误总数：{ex.ErrorCount}（{ex.CriticalCount} 个致命错误）");
     Console.Error.WriteLine();
-    
+
     ex.Report.PrintToConsole(includeDetails: true);
-    
-    var jsonReport = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.GenerateJsonReport(
+
+    string jsonReport = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.GenerateJsonReport(
         ex.Report,
         appId: "Demo.Alipay.HttpApi",
         environment: builder.Environment.EnvironmentName
     );
-    System.IO.File.WriteAllText("contract-errors.json", jsonReport);
-    Console.Error.WriteLine("\n📄 详细报告已保存到: contract-errors.json");
-    
+    if (!string.IsNullOrEmpty(jsonReport))
+    {
+        System.IO.File.WriteAllText("contract-errors.json", jsonReport);
+        Console.Error.WriteLine("\n📄 详细报告已保存到: contract-errors.json");
+    }
+
     Console.Error.WriteLine("\n❌ 系统启动已阻断，请修复上述错误后重试。");
     Environment.Exit(1);
 }

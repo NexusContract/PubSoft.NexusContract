@@ -6,10 +6,10 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Linq.Expressions;
 using System.Reflection;
 using NexusContract.Abstractions.Attributes;
 using NexusContract.Abstractions.Exceptions;
+using NexusContract.Core.Reflection.Compilation;
 
 namespace NexusContract.Core.Reflection
 {
@@ -73,6 +73,9 @@ namespace NexusContract.Core.Reflection
         // 核心冷冻库：Key 是契约类型，Value 是冷冻后的元数据
         private readonly ConcurrentDictionary<Type, ContractMetadata> _cache = new();
 
+        // 表达式编译器（职责分离：元数据管理 vs 表达式编译）
+        private readonly IExpressionCompiler _compiler = ExpressionCompiler.Instance;
+
         private NexusContractMetadataRegistry() { }
 
         /// <summary>
@@ -86,9 +89,9 @@ namespace NexusContract.Core.Reflection
                 // 使用独立 report，避免污染全局状态
                 var report = new DiagnosticReport();
                 ContractValidator.Validate(t, report);
-                
+
                 var metadata = BuildMetadata(t, warmup: false, report: report);
-                
+
                 // 如果有错误，抛出结构化异常（而非 InvalidOperationException）
                 if (report.HasErrors)
                 {
@@ -97,7 +100,7 @@ namespace NexusContract.Core.Reflection
                         $"Contract {t.Name} validation failed: {report.Diagnostics.Count(d => d.Severity >= DiagnosticSeverity.Error)} errors found"
                     );
                 }
-                
+
                 return metadata;
             });
         }
@@ -118,7 +121,7 @@ namespace NexusContract.Core.Reflection
         /// <param name="encryptor">加密器（可选，用于 warmup 阶段测试加密字段）</param>
         /// <param name="decryptor">解密器（可选，用于 warmup 阶段测试解密字段）</param>
         public DiagnosticReport Preload(
-            IEnumerable<Type> types, 
+            IEnumerable<Type> types,
             bool warmup = false,
             Abstractions.Security.IEncryptor? encryptor = null,
             Abstractions.Security.IDecryptor? decryptor = null)
@@ -146,7 +149,7 @@ namespace NexusContract.Core.Reflection
                     try
                     {
                         var metadata = BuildMetadata(type, warmup, perTypeReport, encryptor, decryptor);
-                        
+
                         // 3. 缓存判定只依赖该类型的错误状态
                         if (!perTypeReport.HasErrors)
                         {
@@ -209,14 +212,14 @@ namespace NexusContract.Core.Reflection
         /// <param name="encryptor">加密器（可选，用于 warmup）</param>
         /// <param name="decryptor">解密器（可选，用于 warmup）</param>
         private ContractMetadata BuildMetadata(
-            Type type, 
-            bool warmup, 
+            Type type,
+            bool warmup,
             DiagnosticReport report,
             Abstractions.Security.IEncryptor? encryptor = null,
             Abstractions.Security.IDecryptor? decryptor = null)
         {
             string contractName = type.FullName ?? type.Name ?? "Unknown";
-            
+
             // ========== 阶段 1：入境检查（Validation）==========
             // Validator 已在外部调用，这里直接获取元数据
             var opAttr = type.GetCustomAttribute<ApiOperationAttribute>();
@@ -320,7 +323,9 @@ namespace NexusContract.Core.Reflection
                     {
                         System.Diagnostics.Debug.WriteLine($"  - {ap.PropertyInfo.Name} ({ap.PropertyInfo.PropertyType.Name}): Name={ap.ApiField.Name ?? "<null>"}");
                     }
-                    projector = BuildProjector(type, auditedProps.ToArray());
+                    
+                    // 委托给表达式编译器（职责分离）
+                    projector = _compiler.CompileProjector(type, auditedProps.ToArray());
                     System.Diagnostics.Debug.WriteLine($"[BuildMetadata] Projector built: {(projector != null ? "SUCCESS" : "FAILED")}");
 
                     if (warmup && projector != null)
@@ -361,7 +366,8 @@ namespace NexusContract.Core.Reflection
                 // 构建 Hydrator（回填委托）
                 try
                 {
-                    hydrator = BuildHydrator(type, auditedProps.ToArray());
+                    // 委托给表达式编译器（职责分离）
+                    hydrator = _compiler.CompileHydrator(type, auditedProps.ToArray());
 
                     if (warmup && hydrator != null)
                     {
@@ -402,283 +408,6 @@ namespace NexusContract.Core.Reflection
 
             // 返回不可变对象（即使有错误也返回部分元数据，让调用方决定如何处理）
             return new ContractMetadata(type, opAttr!, properties.AsReadOnly(), projector, hydrator);
-        }
-
-        /// <summary>
-        /// 构建表达式树投影器（Expression Tree → Compiled Delegate）
-        /// 支持加密和命名策略，性能提升约 10 倍
-        /// 
-        /// 限制：仅支持扁平 POCO（无嵌套对象、无集合）
-        /// 包含嵌套对象或集合的 Contract 会在 BuildMetadata 阶段被排除，fallback 到反射路径
-        /// </summary>
-        private static Func<object, Abstractions.Policies.INamingPolicy, Abstractions.Security.IEncryptor?, Dictionary<string, object>> BuildProjector(
-            Type contractType,
-            PropertyAuditResult[] auditResults)
-        {
-            var param = Expression.Parameter(typeof(object), "o");
-            var namingPolicyParam = Expression.Parameter(typeof(Abstractions.Policies.INamingPolicy), "namingPolicy");
-            var encryptorParam = Expression.Parameter(typeof(Abstractions.Security.IEncryptor), "encryptor");
-
-            var typedParam = Expression.Variable(contractType, "t");
-            var dictVar = Expression.Variable(typeof(Dictionary<string, object>), "d");
-            var expressions = new List<Expression>();
-
-            // t = (ContractType)o
-            expressions.Add(Expression.Assign(typedParam, Expression.Convert(param, contractType)));
-
-            // d = new Dictionary<string, object>(capacity)
-            var ctor = typeof(Dictionary<string, object>).GetConstructor(new[] { typeof(int) })
-                       ?? typeof(Dictionary<string, object>).GetConstructor(Type.EmptyTypes)!;
-            Expression newDict = ctor.GetParameters().Length == 1
-                ? Expression.New(ctor, Expression.Constant(auditResults.Length))
-                : Expression.New(ctor);
-            expressions.Add(Expression.Assign(dictVar, newDict));
-
-            var addMethod = typeof(Dictionary<string, object>).GetMethod("Add", new[] { typeof(string), typeof(object) })!;
-            var convertNameMethod = typeof(Abstractions.Policies.INamingPolicy).GetMethod("ConvertName")!;
-            var encryptMethod = typeof(Abstractions.Security.IEncryptor).GetMethod("Encrypt")!;
-
-            foreach (var audit in auditResults)
-            {
-                var prop = audit.PropertyInfo;
-                var apiField = audit.ApiField;
-
-                // 判断字段名：优先使用显式 Name，否则调用 NamingPolicy.ConvertName
-                // 注意：只有当 Name 被显式指定（非 null 且非空）时才使用，否则使用命名策略
-                Expression keyExpr;
-                if (!string.IsNullOrEmpty(apiField.Name))
-                {
-                    keyExpr = Expression.Constant(apiField.Name);
-                }
-                else
-                {
-                    keyExpr = Expression.Call(namingPolicyParam, convertNameMethod, Expression.Constant(prop.Name));
-                }
-
-                // 读取属性值：t.Property
-                var propAccess = Expression.Property(typedParam, prop);
-
-                // 如果加密：调用 encryptor.Encrypt(value.ToString())
-                Expression valueExpr;
-                if (apiField.IsEncrypted)
-                {
-                    // 生成：encryptor != null ? (value != null ? encryptor.Encrypt(value.ToString()) : null) : throw
-                    var encryptorNotNull = Expression.NotEqual(encryptorParam, Expression.Constant(null, typeof(Abstractions.Security.IEncryptor)));
-
-                    // 检查属性值是否为null
-                    var propAsObject = Expression.Convert(propAccess, typeof(object));
-                    var propNotNull = Expression.NotEqual(propAsObject, Expression.Constant(null, typeof(object)));
-
-                    // value.ToString()
-                    var toStringMethod = typeof(object).GetMethod("ToString")!;
-                    var valueAsString = Expression.Call(propAsObject, toStringMethod);
-
-                    // encryptor.Encrypt(valueStr)
-                    var encryptCall = Expression.Call(encryptorParam, encryptMethod, valueAsString);
-
-                    // value != null ? encryptor.Encrypt(value.ToString()) : null
-                    var encryptOrNull = Expression.Condition(
-                        propNotNull,
-                        Expression.Convert(encryptCall, typeof(object)),
-                        Expression.Constant(null, typeof(object)),
-                        typeof(object)
-                    );
-
-                    // throw with detailed diagnostic info
-                    string errorMessage = $"Encryption required but encryptor is null. Type: {contractType.Name}, Property: {prop.Name}";
-                    var throwExpr = Expression.Throw(
-                        Expression.New(
-                            typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!,
-                            Expression.Constant(errorMessage)
-                        ),
-                        typeof(object)
-                    );
-
-                    // encryptor != null ? encryptOrNull : throw
-                    valueExpr = Expression.Condition(encryptorNotNull, encryptOrNull, throwExpr, typeof(object));
-                }
-                else
-                {
-                    valueExpr = Expression.Convert(propAccess, typeof(object));
-                }
-
-                // d.Add(key, value)
-                var addCall = Expression.Call(dictVar, addMethod, keyExpr, valueExpr);
-                expressions.Add(addCall);
-            }
-
-            // return d
-            expressions.Add(dictVar);
-
-            var body = Expression.Block(new[] { typedParam, dictVar }, expressions);
-            var lambda = Expression.Lambda<Func<object, Abstractions.Policies.INamingPolicy, Abstractions.Security.IEncryptor?, Dictionary<string, object>>>(
-                body,
-                param,
-                namingPolicyParam,
-                encryptorParam
-            );
-            return lambda.Compile();
-        }
-
-        /// <summary>
-        /// 构建回填委托（Expression Tree → Compiled Delegate）
-        /// 支持解密、命名策略、基本类型转换
-        /// 
-        /// 限制：仅支持扁平 POCO（无嵌套对象、无集合）
-        /// 检测到复杂类型时直接返回 null，触发 fallback 到反射路径（ResponseHydrationEngine.HydrateInternal）
-        /// </summary>
-        private static Func<IDictionary<string, object>, Abstractions.Policies.INamingPolicy, Abstractions.Security.IDecryptor?, object>? BuildHydrator(
-            Type contractType,
-            PropertyAuditResult[] auditResults)
-        {
-            // 仅为简单POCO构建Hydrator（无复杂类型）
-            // 复杂场景（嵌套对象、集合）需要fallback到反射路径
-            if (auditResults.Any(a => a.IsComplexType))
-            {
-                return null; // Fallback到反射路径
-            }
-
-            var dictParam = Expression.Parameter(typeof(IDictionary<string, object>), "dict");
-            var namingPolicyParam = Expression.Parameter(typeof(Abstractions.Policies.INamingPolicy), "namingPolicy");
-            var decryptorParam = Expression.Parameter(typeof(Abstractions.Security.IDecryptor), "decryptor");
-
-            var instanceVar = Expression.Variable(contractType, "instance");
-            var valueVar = Expression.Variable(typeof(object), "value");
-            var expressions = new List<Expression>();
-
-            // instance = new T()
-            var newInstance = Expression.New(contractType);
-            expressions.Add(Expression.Assign(instanceVar, newInstance));
-
-            var tryGetValueMethod = typeof(IDictionary<string, object>).GetMethod(
-                "TryGetValue",
-                new[] { typeof(string), typeof(object).MakeByRefType() }
-            );
-
-            if (tryGetValueMethod == null)
-            {
-                throw new InvalidOperationException($"Cannot find TryGetValue method on IDictionary<string, object>");
-            }
-
-            var convertNameMethod = typeof(Abstractions.Policies.INamingPolicy).GetMethod("ConvertName")!;
-            var decryptMethod = typeof(Abstractions.Security.IDecryptor).GetMethod("Decrypt")!;
-            var changeTypeMethod = typeof(Convert).GetMethod("ChangeType", new[] { typeof(object), typeof(Type) })!;
-
-            foreach (var audit in auditResults)
-            {
-                var prop = audit.PropertyInfo;
-                var apiField = audit.ApiField;
-
-                // 确定字段名：优先使用显式Name，否则调用NamingPolicy
-                // 注意：只有当 Name 被显式指定（非 null 且非空）时才使用，否则使用命名策略
-                Expression keyExpr;
-                if (!string.IsNullOrEmpty(apiField.Name))
-                {
-                    keyExpr = Expression.Constant(apiField.Name);
-                }
-                else
-                {
-                    keyExpr = Expression.Call(namingPolicyParam, convertNameMethod, Expression.Constant(prop.Name));
-                }
-
-                // dict.TryGetValue(key, out value)
-                var tryGetValue = Expression.Call(
-                    dictParam,
-                    tryGetValueMethod,
-                    keyExpr,
-                    valueVar
-                );
-
-                // 处理值：解密 + 类型转换
-                Expression finalValueExpr = valueVar;
-
-                // 1. 解密（如果需要）
-                if (apiField.IsEncrypted)
-                {
-                    var decryptorNotNull = Expression.NotEqual(decryptorParam, Expression.Constant(null, typeof(Abstractions.Security.IDecryptor)));
-                    var valueAsString = Expression.Convert(valueVar, typeof(string));
-                    var decryptCall = Expression.Call(decryptorParam, decryptMethod, valueAsString);
-
-                    // throw with detailed diagnostic info
-                    string errorMessage = $"Decryption required but decryptor is null. Type: {contractType.Name}, Property: {prop.Name}";
-                    var throwExpr = Expression.Throw(
-                        Expression.New(
-                            typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!,
-                            Expression.Constant(errorMessage)
-                        ),
-                        typeof(string)
-                    );
-
-                    finalValueExpr = Expression.Condition(decryptorNotNull, decryptCall, throwExpr, typeof(string));
-                }
-
-                // 2. 类型转换
-                Expression convertedValue;
-                var targetType = prop.PropertyType;
-                var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
-
-                if (underlyingType == typeof(string))
-                {
-                    // 字符串类型：确保类型匹配
-                    // 如果 finalValueExpr 是 string（解密后）或 object（未解密），都需要转换
-                    if (finalValueExpr.Type == typeof(string))
-                    {
-                        convertedValue = finalValueExpr;
-                    }
-                    else
-                    {
-                        // 从 object 转换为 string
-                        convertedValue = Expression.TypeAs(finalValueExpr, typeof(string));
-                    }
-                }
-                else if (underlyingType.IsValueType)
-                {
-                    // 值类型使用Convert.ChangeType
-                    var changeTypeCall = Expression.Call(
-                        changeTypeMethod,
-                        Expression.Convert(finalValueExpr, typeof(object)),
-                        Expression.Constant(underlyingType)
-                    );
-                    convertedValue = Expression.Convert(changeTypeCall, underlyingType);
-
-                    // 处理Nullable<T>
-                    if (Nullable.GetUnderlyingType(targetType) != null)
-                    {
-                        convertedValue = Expression.Convert(convertedValue, targetType);
-                    }
-                }
-                else
-                {
-                    // 引用类型使用TypeAs
-                    convertedValue = Expression.TypeAs(finalValueExpr, targetType);
-                }
-
-                // instance.Prop = convertedValue
-                var assignProperty = Expression.Assign(
-                    Expression.Property(instanceVar, prop),
-                    convertedValue
-                );
-
-                // if (TryGetValue) { assign; }
-                var ifThen = Expression.IfThen(tryGetValue, assignProperty);
-                expressions.Add(ifThen);
-            }
-
-            // return (object)instance
-            expressions.Add(Expression.Convert(instanceVar, typeof(object)));
-
-            var body = Expression.Block(
-                new[] { instanceVar, valueVar },
-                expressions
-            );
-
-            var lambda = Expression.Lambda<Func<IDictionary<string, object>, Abstractions.Policies.INamingPolicy, Abstractions.Security.IDecryptor?, object>>(
-                body,
-                dictParam,
-                namingPolicyParam,
-                decryptorParam
-            );
-            return lambda.Compile();
         }
     }
 
