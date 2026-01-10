@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using NexusContract.Abstractions.Configuration;
 using NexusContract.Abstractions.Contracts;
 using NexusContract.Abstractions.Exceptions;
@@ -59,11 +60,13 @@ namespace NexusContract.Hosting.Configuration
         private readonly ISubscriber _redisSub;
         private readonly IMemoryCache _memoryCache;
         private readonly ISecurityProvider _securityProvider;
+        private readonly ILogger<HybridConfigResolver> _logger;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks;
         private readonly string _redisKeyPrefix;
         private readonly string _pubSubChannel;
         private readonly TimeSpan _l1Ttl;
         private readonly TimeSpan _l2Ttl;
+        private readonly TimeSpan _indexCacheTtl;
 
         /// <summary>
         /// L1 缓存 TTL（默认 5 分钟）
@@ -74,6 +77,11 @@ namespace NexusContract.Hosting.Configuration
         /// L2 缓存 TTL（默认 30 分钟）
         /// </summary>
         private static readonly TimeSpan DefaultL2Ttl = TimeSpan.FromMinutes(30);
+
+        /// <summary>
+        /// 权限索引缓存 TTL（默认 10 分钟）
+        /// </summary>
+        private static readonly TimeSpan DefaultIndexCacheTtl = TimeSpan.FromMinutes(10);
 
         /// <summary>
         /// Redis 键前缀（默认）
@@ -98,6 +106,7 @@ namespace NexusContract.Hosting.Configuration
             IConnectionMultiplexer redis,
             IMemoryCache memoryCache,
             ISecurityProvider securityProvider,
+            ILogger<HybridConfigResolver> logger,
             string? redisKeyPrefix = null,
             TimeSpan? l1Ttl = null,
             TimeSpan? l2Ttl = null)
@@ -105,6 +114,7 @@ namespace NexusContract.Hosting.Configuration
             _redis = redis ?? throw new ArgumentNullException(nameof(redis));
             _memoryCache = memoryCache ?? throw new ArgumentNullException(nameof(memoryCache));
             _securityProvider = securityProvider ?? throw new ArgumentNullException(nameof(securityProvider));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _redisDb = redis.GetDatabase();
             _redisSub = redis.GetSubscriber();
             _locks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
@@ -112,6 +122,7 @@ namespace NexusContract.Hosting.Configuration
             _pubSubChannel = DefaultPubSubChannel;
             _l1Ttl = l1Ttl ?? DefaultL1Ttl;
             _l2Ttl = l2Ttl ?? DefaultL2Ttl;
+            _indexCacheTtl = DefaultIndexCacheTtl;
 
             // 订阅配置刷新通知
             _redisSub.Subscribe(new RedisChannel(_pubSubChannel, RedisChannel.PatternMode.Literal), OnConfigRefreshMessage);
@@ -141,6 +152,10 @@ namespace NexusContract.Hosting.Configuration
                 resolvedIdentity = await ResolveDefaultProfileAsync(identity, ct)
                     .ConfigureAwait(false);
             }
+
+            // 🔐 防越权校验：验证 AppId 是否属于该 SysId（IDOR 防护）
+            await ValidateOwnershipAsync(resolvedIdentity, ct)
+                .ConfigureAwait(false);
 
             string cacheKey = BuildCacheKey(resolvedIdentity);
 
@@ -196,43 +211,119 @@ namespace NexusContract.Hosting.Configuration
             ITenantIdentity identity,
             CancellationToken ct)
         {
-            string groupKey = BuildGroupKey(identity.ProviderName, identity.RealmId);
+            // 1. 查询映射层（Redis Set）获取所有可用 ProfileId
+            string mapKey = BuildMapKey(identity.ProviderName, identity.RealmId);
 
-            // 1. 尝试获取标记为 default 的 AppId
-            RedisValue defaultAppId = await _redisDb.HashGetAsync(groupKey, "default")
+            // 2. 尝试获取默认 ProfileId 标记（存储在 map 的元数据中）
+            string defaultMarker = $"{mapKey}:default";
+            RedisValue defaultProfileId = await _redisDb.StringGetAsync(defaultMarker)
                 .ConfigureAwait(false);
 
-            if (defaultAppId.HasValue && !string.IsNullOrWhiteSpace(defaultAppId.ToString()))
+            if (defaultProfileId.HasValue)
             {
                 return new ConfigurationContext(identity.ProviderName, identity.RealmId)
                 {
-                    ProfileId = defaultAppId.ToString()
+                    ProfileId = defaultProfileId.ToString()
                 };
             }
 
-            // 2. 回退到第一个 AppId
-            HashEntry[] allAppIds = await _redisDb.HashGetAllAsync(groupKey)
+            // 3. 如果未设置默认，从 map 中获取第一个 ProfileId
+            var allProfileIds = await _redisDb.SetMembersAsync(mapKey)
                 .ConfigureAwait(false);
 
-            if (allAppIds.Length == 0)
+            if (allProfileIds == null || allProfileIds.Length == 0)
             {
-                throw NexusTenantException.NotFound(
-                    $"No AppId found for {identity.ProviderName}:{identity.RealmId}");
+                throw new NexusTenantException(
+                    $"No ProfileId found for RealmId '{identity.RealmId}' in Provider '{identity.ProviderName}'");
             }
 
-            // 排除 "default" 键，获取第一个实际的 AppId
-            HashEntry firstAppId = allAppIds.FirstOrDefault(e => e.Name != "default");
-            if (firstAppId.Name.IsNullOrEmpty)
+            var firstProfileId = allProfileIds[0];
+            if (firstProfileId.IsNullOrEmpty)
             {
-                throw NexusTenantException.NotFound(
-                    $"No valid AppId found for {identity.ProviderName}:{identity.RealmId}");
+                throw new NexusTenantException(
+                    $"No valid ProfileId found for RealmId '{identity.RealmId}' in Provider '{identity.ProviderName}'");
             }
 
             return new ConfigurationContext(identity.ProviderName, identity.RealmId)
             {
-                ProfileId = firstAppId.Name.ToString()
+                ProfileId = firstProfileId.ToString()
             };
         }
+
+        /// <summary>
+        /// 防越权校验：验证 AppId 是否属于该 SysId
+        /// 
+        /// 安全设计：
+        /// - 使用 Redis Set 存储权限白名单（O(1) 查询）
+        /// - 权限索引缓存到 L1（10 分钟 TTL）
+        /// - 记录所有越权尝试（安全审计）
+        /// - 强制校验，任何未授权访问直接拒绝
+        /// 
+        /// 攻击场景防护：
+        /// - 场景 1：攻击者猜测其他租户的 AppId
+        ///   → 由于不在其 SysId 的索引内，直接拦截
+        /// - 场景 2：攻击者伪造 SysId
+        ///   → 签名验证失败（在 Provider 层拦截）
+        /// </summary>
+        private async Task ValidateOwnershipAsync(
+            ITenantIdentity identity,
+            CancellationToken ct)
+        {
+            // 使用统一的 map 层进行权限校验（废弃独立的 index 层）
+            string mapKey = BuildMapKey(identity.ProviderName, identity.RealmId);
+            string mapCacheKey = $"map:{mapKey}";
+
+            // 1. 尝试从 L1 缓存读取权限映射结果
+            bool? cachedResult = _memoryCache.Get<bool?>(mapCacheKey);
+            if (cachedResult.HasValue)
+            {
+                if (!cachedResult.Value)
+                {
+                    // 缓存中已确认无权限，直接拒绝（避免重复查询 Redis）
+                    LogUnauthorizedAccess(identity);
+                    throw new UnauthorizedAccessException(
+                        $"AppId '{identity.ProfileId}' is not authorized for SysId '{identity.RealmId}'");
+                }
+                return; // 缓存命中且已授权
+            }
+
+            // 2. 从 Redis 查询映射层（使用 Set 的 SISMEMBER，O(1) 复杂度）
+            bool isAuthorized = await _redisDb.SetContainsAsync(mapKey, identity.ProfileId!)
+                .ConfigureAwait(false);
+
+            // 3. 缓存查询结果到 L1
+            _memoryCache.Set(mapCacheKey, isAuthorized, new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = _indexCacheTtl,
+                Size = 1
+            });
+
+            // 4. 如果未授权，记录安全事件并拒绝
+            if (!isAuthorized)
+            {
+                LogUnauthorizedAccess(identity);
+                throw new UnauthorizedAccessException(
+                    $"AppId '{identity.ProfileId}' is not authorized for SysId '{identity.RealmId}'. " +
+                    $"This access attempt has been logged for security audit.");
+            }
+        }
+
+        /// <summary>
+        /// 记录越权尝试（安全审计）
+        /// </summary>
+        private void LogUnauthorizedAccess(ITenantIdentity identity)
+        {
+            _logger.LogWarning(
+                "🚨 Potential IDOR attack blocked: " +
+                "SysId '{SysId}' attempted to access unauthorized AppId '{AppId}' " +
+                "for Provider '{Provider}'. " +
+                "[Security Event]",
+                identity.RealmId,
+                identity.ProfileId,
+                identity.ProviderName);
+        }
+
+
 
         /// <summary>
         /// 设置租户配置（写入 Redis + 清除 L1 + Pub/Sub 通知）
@@ -398,10 +489,24 @@ namespace NexusContract.Hosting.Configuration
         /// <summary>
         /// 构建 AppId 组键（用于存储 SysId 下的所有 AppId）
         /// </summary>
-        private string BuildGroupKey(string providerName, string realmId)
+        /// <summary>
+        /// 构建映射层键名（统一授权/发现层）
+        /// 格式：nxc:map:{realm}:{provider}
+        /// 
+        /// 设计理念（三层模型 - Layer 1）：
+        /// - 职责：授权映射 (Mapping/Auth)
+        /// - 结构：Redis Set
+        /// - 成员：该 Realm 在指定渠道下拥有的所有 ProfileId (AppId/SubMchId)
+        /// - 操作：SISMEMBER (权限校验) + SMEMBERS (配置发现)
+        /// 
+        /// 语义对比：
+        /// - 旧设计：group (分组) + index (索引) → 职责重复
+        /// - 新设计：map (映射) → 单一真相源，既是授权白名单，也是配置集合
+        /// </summary>
+        private string BuildMapKey(string providerName, string realmId)
         {
-            // 格式: "nexus:config:group:Alipay:2088123456789012"
-            return $"{_redisKeyPrefix}group:{providerName}:{realmId}";
+            // 格式: "nxc:map:2088123456789012:Alipay" (RealmId 优先，便于 Redis Cluster 分片)
+            return $"nxc:map:{realmId}:{providerName}";
         }
 
         /// <summary>

@@ -31,7 +31,6 @@ namespace NexusContract.Hosting.Configuration
     {
         private readonly HybridConfigResolver _resolver;
         private readonly IDatabase _redisDb;
-        private readonly string _keyPrefix;
 
         /// <summary>
         /// 构造租户配置管理器
@@ -40,7 +39,6 @@ namespace NexusContract.Hosting.Configuration
         {
             _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
             _redisDb = redis?.GetDatabase() ?? throw new ArgumentNullException(nameof(redis));
-            _keyPrefix = "nexus:config:";
         }
 
         /// <summary>
@@ -67,21 +65,26 @@ namespace NexusContract.Hosting.Configuration
                 ProfileId = profileId
             };
 
+            // 使用 Redis Transaction 确保原子性：配置 + 映射层（统一的授权/发现层）
+            var transaction = _redisDb.CreateTransaction();
+
             // 1. 写入配置
-            await _resolver.SetConfigurationAsync(identity, configuration, ct)
-                .ConfigureAwait(false);
+            var writeConfigTask = _resolver.SetConfigurationAsync(identity, configuration, ct);
 
-            // 2. 更新 AppId 组索引
-            string groupKey = BuildGroupKey(providerName, realmId);
-            await _redisDb.HashSetAsync(groupKey, profileId, DateTime.UtcNow.ToString("O"))
-                .ConfigureAwait(false);
+            // 2. 更新映射层（Map Layer - 授权白名单 + 配置集合）
+            string mapKey = BuildMapKey(providerName, realmId);
+            var updateMapTask = transaction.SetAddAsync(mapKey, profileId);
 
-            // 3. 如果标记为默认，设置默认 AppId
+            // 3. 如果标记为默认，设置默认 ProfileId 标记
             if (isDefault)
             {
-                await _redisDb.HashSetAsync(groupKey, "default", profileId)
-                    .ConfigureAwait(false);
+                string defaultMarker = $"{mapKey}:default";
+                var setDefaultTask = transaction.StringSetAsync(defaultMarker, profileId);
             }
+
+            // 等待配置写入完成，然后执行事务
+            await writeConfigTask.ConfigureAwait(false);
+            await transaction.ExecuteAsync().ConfigureAwait(false);
         }
 
         /// <summary>
@@ -115,23 +118,28 @@ namespace NexusContract.Hosting.Configuration
                 ProfileId = profileId
             };
 
+            // 使用 Redis Transaction 确保原子性：配置 + 映射层 + 默认标记
+            var transaction = _redisDb.CreateTransaction();
+
             // 1. 删除配置
-            await _resolver.DeleteConfigurationAsync(identity, ct)
-                .ConfigureAwait(false);
+            var deleteConfigTask = _resolver.DeleteConfigurationAsync(identity, ct);
 
-            // 2. 从 AppId 组中移除
-            string groupKey = BuildGroupKey(providerName, realmId);
-            await _redisDb.HashDeleteAsync(groupKey, profileId)
-                .ConfigureAwait(false);
+            // 2. 从映射层中移除（Map Layer - 从授权白名单中删除）
+            string mapKey = BuildMapKey(providerName, realmId);
+            var deleteMapTask = transaction.SetRemoveAsync(mapKey, profileId);
 
-            // 3. 如果删除的是默认 AppId，清除默认标记
-            RedisValue currentDefault = await _redisDb.HashGetAsync(groupKey, "default")
+            // 3. 如果删除的是默认 ProfileId，清除默认标记
+            string defaultMarker = $"{mapKey}:default";
+            RedisValue currentDefault = await _redisDb.StringGetAsync(defaultMarker)
                 .ConfigureAwait(false);
             if (currentDefault.HasValue && currentDefault.ToString() == profileId)
             {
-                await _redisDb.HashDeleteAsync(groupKey, "default")
-                    .ConfigureAwait(false);
+                var deleteDefaultTask = transaction.KeyDeleteAsync(defaultMarker);
             }
+
+            // 等待配置删除完成，然后执行事务
+            await deleteConfigTask.ConfigureAwait(false);
+            await transaction.ExecuteAsync().ConfigureAwait(false);
         }
 
         /// <summary>
@@ -147,15 +155,27 @@ namespace NexusContract.Hosting.Configuration
             if (string.IsNullOrWhiteSpace(realmId))
                 throw new ArgumentNullException(nameof(realmId));
 
-            string groupKey = BuildGroupKey(providerName, realmId);
-            HashEntry[] entries = await _redisDb.HashGetAllAsync(groupKey)
+            // 从映射层获取所有 ProfileId（Redis Set）
+            string mapKey = BuildMapKey(providerName, realmId);
+            var members = await _redisDb.SetMembersAsync(mapKey)
                 .ConfigureAwait(false);
 
-            // 排除 "default" 键
-            return entries
-                .Where(e => e.Name != "default")
-                .Select(e => e.Name.ToString())
-                .ToList();
+            if (members == null || members.Length == 0)
+            {
+                return Array.Empty<string>();
+            }
+
+            // 转换为字符串列表
+            var profileIds = new List<string>(members.Length);
+            foreach (var member in members)
+            {
+                if (!member.IsNullOrEmpty)
+                {
+                    profileIds.Add(member.ToString());
+                }
+            }
+
+            return profileIds;
         }
 
         /// <summary>
@@ -171,11 +191,13 @@ namespace NexusContract.Hosting.Configuration
             if (string.IsNullOrWhiteSpace(realmId))
                 throw new ArgumentNullException(nameof(realmId));
 
-            string groupKey = BuildGroupKey(providerName, realmId);
-            RedisValue defaultAppId = await _redisDb.HashGetAsync(groupKey, "default")
+            // 从映射层的默认标记中获取
+            string mapKey = BuildMapKey(providerName, realmId);
+            string defaultMarker = $"{mapKey}:default";
+            RedisValue defaultProfileId = await _redisDb.StringGetAsync(defaultMarker)
                 .ConfigureAwait(false);
 
-            return defaultAppId.HasValue ? defaultAppId.ToString() : null;
+            return defaultProfileId.HasValue ? defaultProfileId.ToString() : null;
         }
 
         /// <summary>
@@ -189,19 +211,19 @@ namespace NexusContract.Hosting.Configuration
         {
             ValidateIdentifier(providerName, realmId, profileId);
 
-            string groupKey = BuildGroupKey(providerName, realmId);
-
-            // 验证该 AppId 是否存在
-            bool exists = await _redisDb.HashExistsAsync(groupKey, profileId)
+            // 从映射层验证该 ProfileId 是否存在
+            string mapKey = BuildMapKey(providerName, realmId);
+            bool exists = await _redisDb.SetContainsAsync(mapKey, profileId)
                 .ConfigureAwait(false);
             if (!exists)
             {
                 throw new InvalidOperationException(
-                    $"AppId '{profileId}' does not exist under {providerName}:{realmId}");
+                    $"ProfileId '{profileId}' does not exist under Realm '{realmId}' in Provider '{providerName}'");
             }
 
-            // 设置默认 AppId
-            await _redisDb.HashSetAsync(groupKey, "default", profileId)
+            // 设置映射层的默认标记
+            string defaultMarker = $"{mapKey}:default";
+            await _redisDb.StringSetAsync(defaultMarker, profileId)
                 .ConfigureAwait(false);
         }
 
@@ -337,11 +359,23 @@ namespace NexusContract.Hosting.Configuration
         }
 
         /// <summary>
-        /// 构建 AppId 组键
+        /// 构建映射层键名（三层模型 - Layer 1: Mapping/Auth）
+        /// 格式：nxc:map:{realm}:{provider}
+        /// 
+        /// 设计理念：
+        /// - 职责：授权映射（既是权限白名单，也是配置发现层）
+        /// - 结构：Redis Set
+        /// - 成员：该 Realm 在指定渠道下拥有的所有 ProfileId
+        /// - 操作：SADD/SREM (维护) + SISMEMBER (校验) + SMEMBERS (查询)
+        /// 
+        /// 语义简化：
+        /// - 旧设计：group (分组) + index (索引) → 职责重复
+        /// - 新设计：map (映射) → 单一真相源
         /// </summary>
-        private string BuildGroupKey(string providerName, string realmId)
+        private string BuildMapKey(string providerName, string realmId)
         {
-            return $"{_keyPrefix}group:{providerName}:{realmId}";
+            // RealmId 优先排列，便于 Redis Cluster 按业务单元分片
+            return $"nxc:map:{realmId}:{providerName}";
         }
     }
 

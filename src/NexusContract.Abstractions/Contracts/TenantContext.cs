@@ -93,11 +93,12 @@ namespace NexusContract.Abstractions.Contracts
 
         /// <summary>
         /// 便于调试的字符串表示
+        /// 使用扩展方法生成标准化的身份标识
         /// </summary>
         public override string ToString()
         {
-            string provider = string.IsNullOrEmpty(ProviderName) ? "Unknown" : ProviderName;
-            return $"[{provider}] Realm:{RealmId}, Profile:{ProfileId}";
+            // 使用 GetIdentityTag() 扩展方法保证格式一致性
+            return $"[{this.GetIdentityTag()}]";
         }
     }
 }

@@ -15,10 +15,22 @@ namespace NexusContract.Core.Configuration
     /// - 作为 IConfigurationResolver.ResolveAsync() 的输入参数
     /// - 支持扩展元数据（用于配置分片、多环境等场景）
     /// 
-    /// 术语映射：
-    /// - ProviderName: 渠道标识 (e.g., "Alipay")
-    /// - RealmId: 域/归属权 (对应 SysId / SpMchId)
-    /// - ProfileId: 档案/执行单元 (对应 AppId / SubMchId)
+    /// 术语映射（Realm 概念）：
+    /// - **ProviderName**: 渠道标识 (e.g., "Alipay", "WeChat")
+    ///   * 用于 Redis 键路由和协议选择
+    ///   * 必填字段（Redis-First 架构要求）
+    /// 
+    /// - **RealmId**: 域/归属权（Realm = 逻辑隔离的业务空间）
+    ///   * Alipay: sys_id (ISV 服务商系统ID)
+    ///   * WeChat: sp_mchid (服务商商户号)
+    ///   * 业务含义：标识一个独立的逻辑领域（服务商、机构、代理商）
+    ///   * 防越权隔离：不同 Realm 之间的配置完全隔离
+    /// 
+    /// - **ProfileId**: 档案/执行单元（Profile = 业务实例）
+    ///   * Alipay: app_id (ISV 应用ID)
+    ///   * WeChat: sub_mchid (特约商户号)
+    ///   * 业务含义：Realm 下的具体业务实例（子商户、设备、应用）
+    ///   * 可选字段：某些场景可通过默认规则自动补全
     /// 
     /// 使用场景：
     /// <code>
@@ -28,7 +40,7 @@ namespace NexusContract.Core.Configuration
     ///     ProfileId = tenantCtx.ProfileId
     /// };
     /// 
-    /// // 解析配置
+    /// // 解析配置（会触发 Realm 权限校验）
     /// var settings = await _configResolver.ResolveAsync(configCtx, ct);
     /// </code>
     /// 
@@ -41,18 +53,26 @@ namespace NexusContract.Core.Configuration
         /// <summary>
         /// 渠道标识 (e.g., "Alipay", "WeChat", "UnionPay")
         /// 用于 IConfigurationResolver 路由到对应的配置源
+        /// 必填字段（Redis-First 架构中用于构造配置键）
         /// </summary>
         public string ProviderName { get; }
 
         /// <summary>
-        /// 域/归属权 (对应 SysId / SpMchId)
-        /// 必需字段，用于多租户配置隔离
+        /// 域/归属权（Realm ID）
+        /// - Alipay: sys_id (ISV 服务商系统ID)
+        /// - WeChat: sp_mchid (服务商商户号)
+        /// 
+        /// 必需字段，用于多租户配置隔离和防越权校验
         /// </summary>
         public string RealmId { get; }
 
         /// <summary>
-        /// 档案/执行单元 (对应 AppId / SubMchId)
+        /// 档案/执行单元（Profile ID）
+        /// - Alipay: app_id (ISV 应用ID)
+        /// - WeChat: sub_mchid (特约商户号)
+        /// 
         /// 可选字段，某些场景下可能由 RealmId 推导
+        /// 如果为 null，HybridConfigResolver 会尝试自动解析默认 Profile
         /// </summary>
         public string ProfileId { get; set; }
 
