@@ -33,13 +33,13 @@ graph TD
     subgraph GatewayHost [Nexus Gateway Host]
         direction TB
 
-        %% A. Reception and Context Building (Zero-Code Base)
-        FE -->|1. Strongly-typed Req + Context| Core[NexusEngine]
+        %% A. Reception and Context Building
+        FE -->|"1. Strongly-typed Req + Context"| Core[NexusEngine]
 
         %% B. Dispatch
-        Core -->|2. Dispatch (Stateless)| Provider[Alipay / WeChat Provider]
+        Core -->|"2. Dispatch (Stateless)"| Provider[Alipay / WeChat Provider]
 
-        %% C. Configuration Resolution (JIT Core)
+        %% C. Configuration Resolution
         subgraph ConfigLayer [Configuration Strategy Layer]
             direction TB
             style ConfigLayer fill:#e3f2fd,stroke:#1565c0,stroke-dasharray: 5 5
@@ -47,7 +47,7 @@ graph TD
             Resolver[Configuration Resolver]
             Cache[(L1 Memory + L2 Redis)]
 
-            Resolver <-->|3. Get Keys (JIT)| Cache
+            Resolver <-->|"3. Get Keys (JIT)"| Cache
         end
 
         %% D. Execution and Transport
@@ -59,9 +59,9 @@ graph TD
             Yarp[YarpTransport]
         end
 
-        Provider -->|3a. Request Config (with ProviderName)| Resolver
-        Provider -.->|4. Calculate Route (no keys)| UrlStrategy
-        Provider -->|5. Sign and Send| Yarp
+        Provider -->|"3a. Request Config (ProviderName)"| Resolver
+        Provider -.->|"4. Calculate Route (no keys)"| Url
+        Provider -->|"5. Sign and Send"| Yarp
     end
 
     %% 3. Upstream

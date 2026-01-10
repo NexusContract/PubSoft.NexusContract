@@ -34,10 +34,10 @@ graph TD
         direction TB
 
         %% A. 接收与上下文构建 (Zero-Code Base)
-        FE -->|1. 强类型 Req + Context| Core[NexusEngine]
+        FE -->|"1. 强类型 Req + Context"| Core[NexusEngine]
 
         %% B. 调度
-        Core -->|2. 调度 (无状态)| Provider[Alipay / WeChat Provider]
+        Core -->|"2. 调度 (无状态)"| Provider[Alipay / WeChat Provider]
 
         %% C. 配置解析 (JIT 核心)
         subgraph ConfigLayer [配置策略层]
@@ -47,7 +47,7 @@ graph TD
             Resolver[Configuration Resolver]
             Cache[(L1 Memory + L2 Redis)]
             
-            Resolver <-->|3. 获取密钥 (JIT)| Cache
+            Resolver <-->|"3. 获取密钥 (JIT)"| Cache
         end
 
         %% D. 执行与传输
@@ -59,9 +59,9 @@ graph TD
             Yarp[YarpTransport]
         end
 
-        Provider -->|3a. 请求配置 (带 ProviderName)| Resolver
-        Provider -.->|4. 计算路由 (无密钥)| UrlStrategy
-        Provider -->|5. 签名并发送| Yarp
+        Provider -->|"3a. 请求配置 (带 ProviderName)"| Resolver
+        Provider -.->|"4. 计算路由 (无密钥)"| Url
+        Provider -->|"5. 签名并发送"| Yarp
     end
 
     %% 3. 上游
@@ -72,7 +72,6 @@ graph TD
     style Core fill:#fff9c4,stroke:#fbc02d,stroke-width:2px
     style Provider fill:#fff3e0,stroke:#e65100,stroke-width:2px
     style Resolver fill:#bbdefb,stroke:#0d47a1,stroke-width:2px
-
 ```
 
 ---
