@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Demo.Alipay.Contract", "exa
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Demo.Alipay.HttpApi", "examples\Demo.Alipay.HttpApi\Demo.Alipay.HttpApi.csproj", "{70AE60D8-255D-44B1-8D0A-A583238FC819}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexusContract.Hosting.Yarp", "src\NexusContract.Hosting.Yarp\NexusContract.Hosting.Yarp.csproj", "{758E1A95-AB92-4FFD-86F6-1EBB026735BF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -103,6 +105,18 @@ Global
 		{70AE60D8-255D-44B1-8D0A-A583238FC819}.Release|x64.Build.0 = Release|Any CPU
 		{70AE60D8-255D-44B1-8D0A-A583238FC819}.Release|x86.ActiveCfg = Release|Any CPU
 		{70AE60D8-255D-44B1-8D0A-A583238FC819}.Release|x86.Build.0 = Release|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Debug|x64.Build.0 = Debug|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Debug|x86.Build.0 = Debug|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Release|x64.ActiveCfg = Release|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Release|x64.Build.0 = Release|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Release|x86.ActiveCfg = Release|Any CPU
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -114,5 +128,6 @@ Global
 		{B2B2B2B2-2222-2222-2222-222222222222} = {F2F2F2F2-2222-2222-2222-222222222222}
 		{344B1FAE-4B47-44B9-9E80-84A25225C334} = {F4F4F4F4-4444-4444-4444-444444444444}
 		{70AE60D8-255D-44B1-8D0A-A583238FC819} = {F4F4F4F4-4444-4444-4444-444444444444}
+		{758E1A95-AB92-4FFD-86F6-1EBB026735BF} = {F1F1F1F1-1111-1111-1111-111111111111}
 	EndGlobalSection
 EndGlobal

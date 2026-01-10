@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NexusContract.Hosting</RootNamespace>
+    <AssemblyName>NexusContract.Hosting</AssemblyName>
+    
+    <!-- 📦 NuGet 包元数据 -->
+    <PackageId>NexusContract.Hosting</PackageId>
+    <Title>NexusContract Hosting - ASP.NET Core Integration Layer</Title>
+    <Description>[EN] Glue layer for NexusContract framework integration with ASP.NET Core and FastEndpoints. Includes TenantContextFactory (HTTP context extraction), NexusEndpointBase (zero-code endpoint base class), and protocol adapters. Targets .NET 10. | [CN] NexusContract 框架与 ASP.NET Core、FastEndpoints 集成的胶水层。包含 TenantContextFactory（HTTP 上下文提取）、NexusEndpointBase（零代码 Endpoint 基类）及协议适配器。目标 .NET 10。</Description>
+    <PackageTags>$(PackageTags);hosting;aspnetcore;fastendpoints;glue-layer;tenant-extraction;zero-code;net10</PackageTags>
+    <PackageReleaseNotes>Initial preview with TenantContextFactory and NexusEndpointBase for zero-code ISV multi-tenant endpoints.</PackageReleaseNotes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NexusContract.Core\NexusContract.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- FastEndpoints 7.1.1 (最新版本) -->
+    <PackageReference Include="FastEndpoints" Version="7.1.1" />
+    
+    <!-- Redis L2 缓存（最新稳定版） -->
+    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
+    
+    <!-- 内存缓存抽象（.NET 10 匹配版本） -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.0" />
+    
+    <!-- System.Text.Json (禁止 Newtonsoft.Json) -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

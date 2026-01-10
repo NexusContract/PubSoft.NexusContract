@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using NexusContract.Abstractions.Contracts;
+using NexusContract.Abstractions.Transport;
 using NexusContract.Core.Reflection;
 
 namespace NexusContract.Providers.Alipay
@@ -45,11 +46,33 @@ namespace NexusContract.Providers.Alipay
     public sealed class AlipayProxyProvider : IAsyncDisposable
     {
         private readonly AlipayProviderConfig _config;
-        private readonly HttpClient _httpClient;
+        private readonly INexusTransport? _transport;     // 优先使用 Nexus 传输层
+        private readonly HttpClient? _httpClient;         // 回退选项（向后兼容）
         private readonly JsonSerializerOptions _jsonOptions;
 
         /// <summary>
-        /// 初始化极简代理
+        /// 初始化极简代理（推荐使用 INexusTransport）
+        /// </summary>
+        /// <param name="config">支付宝配置</param>
+        /// <param name="transport">Nexus 传输层（推荐，生产级）</param>
+        public AlipayProxyProvider(AlipayProviderConfig config, INexusTransport transport)
+        {
+            _config = config ?? throw new ArgumentNullException(nameof(config));
+            _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+
+            // 配置 JSON 序列化选项
+            _jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                WriteIndented = false
+            };
+
+            ValidateConfiguration();
+        }
+
+        /// <summary>
+        /// 初始化极简代理（使用 HttpClient，向后兼容）
         /// </summary>
         /// <param name="config">支付宝配置</param>
         /// <param name="httpClient">HTTP 客户端（应注入 AlipaySignatureHandler）</param>
@@ -116,10 +139,26 @@ namespace NexusContract.Providers.Alipay
                 Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
             };
 
-            // 5. 发送请求（签名由 AlipaySignatureHandler 自动处理）
-            HttpResponseMessage httpResponse = await _httpClient
-                .SendAsync(httpRequest, cancellationToken)
-                .ConfigureAwait(false);
+            // 5. 发送请求（优先使用 Nexus 传输层）
+            HttpResponseMessage httpResponse;
+            if (_transport != null)
+            {
+                // 使用 Nexus 传输层（生产级：HTTP/2 + 重试 + 熔断）
+                httpResponse = await _transport
+                    .SendAsync(httpRequest, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else if (_httpClient != null)
+            {
+                // 回退到 HttpClient（向后兼容，签名由 AlipaySignatureHandler 自动处理）
+                httpResponse = await _httpClient
+                    .SendAsync(httpRequest, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                throw new InvalidOperationException("Neither INexusTransport nor HttpClient is available");
+            }
 
             // 6. 处理响应
             string responseBody = await httpResponse.Content
@@ -169,7 +208,7 @@ namespace NexusContract.Providers.Alipay
         /// <inheritdoc />
         public ValueTask DisposeAsync()
         {
-            // HttpClient 由 DI 管理，不在这里 Dispose
+            // HttpClient 和 INexusTransport 由 DI 管理，不在这里 Dispose
             return ValueTask.CompletedTask;
         }
     }

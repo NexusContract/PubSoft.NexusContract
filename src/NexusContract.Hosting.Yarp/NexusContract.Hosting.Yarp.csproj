@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NexusContract.Hosting.Yarp</RootNamespace>
+    <AssemblyName>NexusContract.Hosting.Yarp</AssemblyName>
+    
+    <!-- 📦 NuGet 包元数据 -->
+    <PackageId>NexusContract.Hosting.Yarp</PackageId>
+    <Title>NexusContract Hosting.Yarp - HTTP/2 Egress Transport Layer</Title>
+    <Description>[EN] High-performance HTTP/2 egress transport layer using YARP (Yet Another Reverse Proxy). Provides connection pooling, circuit breaker, retry policies, and load balancing for upstream API calls. Targets .NET 10. | [CN] 基于 YARP 的高性能 HTTP/2 出口传输层。提供连接池、熔断器、重试策略和负载均衡，用于上游 API 调用。目标 .NET 10。</Description>
+    <PackageTags>$(PackageTags);yarp;egress;transport;http2;circuit-breaker;retry;load-balancing;polly;net10</PackageTags>
+    <PackageReleaseNotes>Initial preview with HTTP/2 connection pooling, Polly retry/circuit breaker, and YARP integration.</PackageReleaseNotes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NexusContract.Abstractions\NexusContract.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- YARP 反向代理（用于高性能 HTTP/2 传输） -->
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.2.0" />
+    
+    <!-- Polly 弹性策略（重试、熔断、超时） -->
+    <PackageReference Include="Polly" Version="8.5.0" />
+    <PackageReference Include="Polly.Extensions.Http" Version="3.0.0" />
+    
+    <!-- Microsoft.Extensions（DI、日志、配置） -->
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 
 using NexusContract.Abstractions.Contracts;
 using NexusContract.Abstractions.Policies;
+using NexusContract.Abstractions.Transport;
 using NexusContract.Core;
 using NexusContract.Core.Policies.Impl;
 using CoreExecutionContext = NexusContract.Core.ExecutionContext;
@@ -76,16 +77,38 @@ namespace NexusContract.Providers.Alipay
     {
         private readonly AlipayProviderConfig _config;
         private readonly NexusGateway _gateway;
-        private readonly HttpClient _httpClient;
+        private readonly INexusTransport? _transport;     // 优先使用 Nexus 传输层
+        private readonly HttpClient? _httpClient;         // 回退选项（向后兼容）
         private readonly INamingPolicy _namingPolicy;
         private bool _disposed;
 
         /// <summary>
-        /// 初始化支付宝提供商
+        /// 初始化支付宝提供商（推荐使用 INexusTransport）
         /// </summary>
         /// <param name="config">支付宝配置</param>
         /// <param name="gateway">Nexus 网关</param>
-        /// <param name="httpClient">HTTP 客户端</param>
+        /// <param name="transport">Nexus 传输层（推荐，生产级）</param>
+        /// <param name="namingPolicy">命名策略（默认为 SnakeCase）</param>
+        public AlipayProvider(
+            AlipayProviderConfig config,
+            NexusGateway gateway,
+            INexusTransport transport,
+            INamingPolicy? namingPolicy = null)
+        {
+            _config = config ?? throw new ArgumentNullException(nameof(config));
+            _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
+            _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+            _namingPolicy = namingPolicy ?? new SnakeCaseNamingPolicy();
+
+            ValidateConfiguration();
+        }
+
+        /// <summary>
+        /// 初始化支付宝提供商（使用 HttpClient，向后兼容）
+        /// </summary>
+        /// <param name="config">支付宝配置</param>
+        /// <param name="gateway">Nexus 网关</param>
+        /// <param name="httpClient">HTTP 客户端（不推荐，仅向后兼容）</param>
         /// <param name="namingPolicy">命名策略（默认为 SnakeCase）</param>
         public AlipayProvider(
             AlipayProviderConfig config,
@@ -163,8 +186,23 @@ namespace NexusContract.Providers.Alipay
                 request.Headers.Add("Authorization", $"ALIPAY-SHA256withRSA app_id={_config.AppId},timestamp={authParams["timestamp"]},version=1.0,sign={signature}");
                 request.Content = new StringContent(bizContent, Encoding.UTF8, "application/json");
 
-                // 6. 发送请求
-                HttpResponseMessage httpResponse = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                // 6. 发送请求（优先使用 Nexus 传输层）
+                HttpResponseMessage httpResponse;
+                if (_transport != null)
+                {
+                    // 使用 Nexus 传输层（生产级：HTTP/2 + 重试 + 熔断）
+                    httpResponse = await _transport.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                }
+                else if (_httpClient != null)
+                {
+                    // 回退到 HttpClient（向后兼容）
+                    httpResponse = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    throw new InvalidOperationException("Neither INexusTransport nor HttpClient is available");
+                }
+                
                 httpResponse.EnsureSuccessStatusCode();
 
                 // 7. 解析响应
