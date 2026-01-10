@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using NexusContract.Abstractions.Configuration;
 using NexusContract.Core.Configuration;
 using StackExchange.Redis;
@@ -31,14 +32,21 @@ namespace NexusContract.Hosting.Configuration
     {
         private readonly HybridConfigResolver _resolver;
         private readonly IDatabase _redisDb;
+        private readonly ISubscriber _redisSub;
+        private readonly ILogger<TenantConfigurationManager>? _logger;
 
         /// <summary>
         /// 构造租户配置管理器
         /// </summary>
-        public TenantConfigurationManager(HybridConfigResolver resolver, IConnectionMultiplexer redis)
+        public TenantConfigurationManager(
+            HybridConfigResolver resolver, 
+            IConnectionMultiplexer redis,
+            ILogger<TenantConfigurationManager>? logger = null)
         {
             _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
             _redisDb = redis?.GetDatabase() ?? throw new ArgumentNullException(nameof(redis));
+            _redisSub = redis?.GetSubscriber() ?? throw new ArgumentNullException(nameof(redis));
+            _logger = logger;
         }
 
         /// <summary>
@@ -85,6 +93,10 @@ namespace NexusContract.Hosting.Configuration
             // 等待配置写入完成，然后执行事务
             await writeConfigTask.ConfigureAwait(false);
             await transaction.ExecuteAsync().ConfigureAwait(false);
+
+            // 🔥 新商家上线隔离策略：主动预热网关缓存（确定性下发）
+            // 让新商家的配置加载 100% 发生在"主动推送"路径，避免冷启动风险
+            await PreWarmGatewayAsync(providerName, realmId, ct).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -305,6 +317,83 @@ namespace NexusContract.Hosting.Configuration
             }
 
             return successCount;
+        }
+
+        /// <summary>
+        /// 预热网关缓存（新商家上线隔离策略 - ADR-009 Section 4.7）
+        /// 
+        /// 核心思想：让新商家的配置加载 100% 发生在"主动推送"路径，避免冷启动风险
+        /// 
+        /// 业务流程：
+        /// 1. 管理端保存配置后，自动调用本方法
+        /// 2. 从 Redis 获取最新全量 Map（SMEMBERS）
+        /// 3. 通过 Pub/Sub 推送到所有网关实例
+        /// 4. ISV 手动测试（扫码支付）→ 验证配置生效
+        /// 5. 如果失败 → 点击"手动刷新"按钮 → 重新触发预热
+        /// 
+        /// 隔离效果：
+        /// - 主路径（预热推送）：管理端保存配置 → Redis 查询 1 次 → 0 影响
+        /// - 兜底路径（冷启动）：Pub/Sub 丢失或实例重启 → Redis 查询 + 500ms 超时保护 → 仅新商家失败
+        /// 
+        /// 核心收益：
+        /// - ✅ 确定性下发：新商家配置 100% 依赖主动推送，减少冷启动依赖
+        /// - ✅ 手动验证：ISV 测试失败可重试，不依赖"自动恢复"
+        /// - ✅ 资源隔离：即便极端场景下冷启动失败，也不会拖累老商家
+        /// </summary>
+        /// <param name="providerName">供应商名称</param>
+        /// <param name="realmId">租户 ID</param>
+        /// <param name="ct">取消令牌</param>
+        public async Task PreWarmGatewayAsync(
+            string providerName,
+            string realmId,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(providerName))
+                throw new ArgumentNullException(nameof(providerName));
+            if (string.IsNullOrWhiteSpace(realmId))
+                throw new ArgumentNullException(nameof(realmId));
+
+            try
+            {
+                // 1. 从 Redis 获取最新全量 Map（SMEMBERS）
+                string mapKey = BuildMapKey(realmId, providerName);
+                var profileIds = await _redisDb.SetMembersAsync(mapKey).ConfigureAwait(false);
+
+                if (profileIds == null || profileIds.Length == 0)
+                {
+                    _logger?.LogWarning(
+                        "PreWarm: No profiles found for Realm {RealmId} in Provider {ProviderName}, skip pre-warming",
+                        realmId, providerName);
+                    return;
+                }
+
+                // 2. 推送到所有网关实例（Pub/Sub）
+                // 使用 MappingChange 类型，触发原子替换策略（带 AuthorizedProfileIds）
+                var message = JsonSerializer.Serialize(new
+                {
+                    RealmId = realmId,
+                    ProviderName = providerName,
+                    Type = 1, // RefreshType.MappingChange
+                    AuthorizedProfileIds = profileIds.Select(x => x.ToString()).ToArray()
+                }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+                await _redisSub.PublishAsync(
+                    new RedisChannel("nexus:config:refresh", RedisChannel.PatternMode.Literal),
+                    message
+                ).ConfigureAwait(false);
+
+                _logger?.LogInformation(
+                    "PreWarm: Gateway cache pre-warmed for Realm {RealmId} in Provider {ProviderName} with {Count} profiles",
+                    realmId, providerName, profileIds.Length);
+            }
+            catch (Exception ex)
+            {
+                // 预热失败不应阻塞业务流程（冷启动自愈机制兜底）
+                _logger?.LogError(ex,
+                    "PreWarm: Failed to pre-warm gateway for Realm {RealmId} in Provider {ProviderName}. " +
+                    "Cold start self-healing will handle first request.",
+                    realmId, providerName);
+            }
         }
 
         /// <summary>

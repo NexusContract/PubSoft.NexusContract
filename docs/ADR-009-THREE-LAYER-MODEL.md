@@ -740,16 +740,16 @@ _metrics.Histogram("old_tenant.p99_latency_ms", p99); // 老商家 P99 延迟
 - [x] **实现原子替换策略**（消息携带全量 ProfileId 列表）
   - [x] 修改 `ConfigRefreshMessage` 增加 `AuthorizedProfileIds` 字段
   - [x] 重构监听端 `OnConfigRefreshMessage`，使用 `Set` 代替 `Remove`
-  - [ ] 更新推送端逻辑（管理端查询全量列表并推送）
+  - [x] 更新推送端逻辑（管理端查询全量列表并推送） - PreWarmGatewayAsync 实现
   - [ ] 增加消息体大小监控（验证 < 10KB）
 - [x] **实现推拉结合的自愈机制**（Cold Start Self-Healing）
   - [x] 实现 `ColdStartSyncAsync` 方法（通过 SemaphoreSlim 加锁）
   - [x] 实现负缓存策略（空 HashSet 缓存 5 分钟）
   - [x] 添加 `_mapLockDict` 字典管理每个 Key 的锁
   - [x] 增加冷启动日志和指标监控
-- [ ] **实现新商家上线隔离策略**（Section 4.7）
-  - [ ] 为 `ColdStartSyncAsync` 添加 500ms 超时保护（Fail-Fast）
-  - [ ] 实现 `PreWarmGatewayAsync` 预热接口（管理端主动推送）
+- [x] **实现新商家上线隔离策略**（Section 4.7）
+  - [x] 为 `ColdStartSyncAsync` 添加 500ms 超时保护（Fail-Fast）
+  - [x] 实现 `PreWarmGatewayAsync` 预热接口（管理端主动推送）
   - [ ] 增加超时监控指标（`cold_start.timeout`）
   - [ ] 管理端增加"手动刷新"按钮（ISV 测试失败时重试）
 - [ ] 实现 Layer 2 (nxc:inst) 和 Layer 3 (nxc:pool) 的逻辑分离
