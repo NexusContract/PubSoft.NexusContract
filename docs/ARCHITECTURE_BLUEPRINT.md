@@ -1,6 +1,6 @@
-# NexusContract Architecture Blueprint v1.1
+# 🏛️ NexusContract Architecture Blueprint v1.2 (Final Execution Release)
 
-> **Version:** 1.1 (ISV Multi-Tenant Execution Release)
+> **Version:** 1.2 (ISV Multi-Tenant Execution Release)
 > **Status:** ✅ Approved
 > **Date:** January 10, 2026
 > **Scenario:** High-concurrency ISV gateway for Alipay/WeChat Pay (hundreds of merchants dynamic access)
@@ -145,9 +145,9 @@ Using **Template Method Pattern**. Base class handles routing, tenant extraction
 
 ```csharp
 // Core Base Class: NexusEndpointBase
-public abstract class NexusEndpointBase<TReq, TResp> : Endpoint<TReq, TResp>
-    where TReq : class, IApiRequest<TResp>, new()
-    where TResp : class, new()
+// 🔥 Key Design: Only TReq is required, response type automatically inferred from IApiRequest<TResp>
+public abstract class NexusEndpointBase<TReq> : Endpoint<TReq, TReq.TResponse>
+    where TReq : class, IApiRequest<TReq.TResponse>, new()
 {
     private readonly INexusEngine _engine; // Replace specific Provider with universal dispatch
     private readonly ILogger _logger;
@@ -203,6 +203,173 @@ public abstract class NexusEndpointBase<TReq, TResp> : Endpoint<TReq, TResp>
 }
 
 ```
+
+#### 🚀 Business Endpoint Implementation Examples (Zero-Code in Action)
+
+**Traditional Approach vs NexusContract Comparison:**
+
+```csharp
+// ❌ Traditional Approach: Each Endpoint requires massive boilerplate (70+ lines)
+// Note: Even traditional approach needs to explicitly specify TradeResponse
+public class TradeCreateEndpoint_Traditional : Endpoint<CreateTradeRequest, TradeResponse>
+{
+    private readonly IAlipayProvider _alipayProvider;
+    private readonly ILogger<TradeCreateEndpoint_Traditional> _logger;
+
+    public TradeCreateEndpoint_Traditional(IAlipayProvider alipayProvider, ILogger<...> logger)
+    {
+        _alipayProvider = alipayProvider;
+        _logger = logger;
+    }
+
+    public override void Configure()
+    {
+        Post("/api/alipay/trade/create");  // Hardcoded route
+        AllowAnonymous();
+    }
+
+    public override async Task HandleAsync(CreateTradeRequest req, CancellationToken ct)
+    {
+        try
+        {
+            // Manual tenant extraction
+            var sysId = HttpContext.Request.Headers["X-SysId"].ToString();
+            var appId = req.AppId ?? HttpContext.Request.Headers["X-AppId"].ToString();
+            
+            if (string.IsNullOrEmpty(sysId) || string.IsNullOrEmpty(appId))
+                throw new ArgumentException("Missing tenant identifier");
+
+            // Manual Provider invocation
+            var response = await _alipayProvider.ExecuteAsync(req, ct);
+            await SendAsync(response);
+        }
+        // Manual exception handling
+        catch (ContractIncompleteException ex)
+        {
+            await SendAsync(new ErrorResponse 
+            { 
+                Code = "NXC200", 
+                Message = ex.Message 
+            }, 400);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Alipay trade creation failed");
+            await SendAsync(new ErrorResponse 
+            { 
+                Code = "NXC999", 
+                Message = "Internal Server Error" 
+            }, 500);
+        }
+    }
+}
+
+// ✅ NexusContract Approach: Ultimate simplicity, true zero-code (1 line!)
+// 🔥 Key: No need to specify response type! Framework auto-infers from IApiRequest<TradeResponse>
+// 💎 .NET 10 Feature: Primary Constructor completely eliminates constructor boilerplate
+public sealed class TradeCreateEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<CreateTradeRequest>(engine) { }
+
+// ✅ Same applies to all other Endpoints - response type determined by contract interface
+public sealed class TradePayEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<TradePayRequest>(engine) { }
+
+public sealed class TradeQueryEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<TradeQueryRequest>(engine) { }
+
+public sealed class TradeRefundEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<TradeRefundRequest>(engine) { }
+
+// ✅ Cross-channel consistency: WeChat Pay Endpoint has identical structure
+public sealed class WeChatPayEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<WeChatPayRequest>(engine) { }
+
+```
+
+#### 🎯 Framework Advantages (Key Advantages)
+
+| Dimension | Traditional Approach | NexusContract | Advantage |
+|-----------|---------------------|---------------|-----------|
+| **Code Volume** | 70+ lines per Endpoint | 1 line per Endpoint (.NET 10) | **99% code reduction** |
+| **Route Configuration** | Hardcoded strings | Metadata auto-generated | Zero hardcoding, type-safe |
+| **Tenant Extraction** | Manual Header/Body parsing | Auto-recognition & extraction | Framework auto-handles |
+| **Exception Handling** | Repeated in each Endpoint | Base class unified handling | Global consistency |
+| **Error Format** | Custom ErrorResponse | Standard NxcErrorEnvelope | Contract standardization |
+| **Testability** | Need Mock HttpContext | Pure POCO unit tests | No infrastructure dependencies |
+| **New API Addition** | Copy-paste 70-line template | 1 line completion | **70x development efficiency** |
+| **Cross-channel Consistency** | Per-channel custom implementation | Completely unified structure | Reduced cognitive load |
+
+#### 💡 Runtime Execution Flow
+
+When requesting `POST /api/trade/create`, framework automatically completes:
+
+```mermaid
+sequenceDiagram
+    participant Client as Client
+    participant EP as TradeCreateEndpoint
+    participant Registry as MetadataRegistry
+    participant Factory as TenantContextFactory
+    participant Engine as NexusEngine
+    participant Provider as AlipayProvider
+
+    Client->>EP: POST /api/trade/create
+    Note over EP: 1. Configure() executes
+    EP->>Registry: GetMetadata(CreateTradeRequest)
+    Registry-->>EP: Operation="alipay.trade.create"
+    Note over EP: Auto-register route "/api/trade/create"
+    
+    Note over EP: 2. HandleAsync() executes
+    EP->>Factory: Create(req, HttpContext)
+    Factory-->>EP: TenantContext(SysId, AppId)
+    
+    EP->>Engine: ExecuteAsync(req, tenantCtx)
+    Engine->>Provider: ExecuteAsync(req, ctx)
+    Provider-->>Engine: TradeResponse
+    Engine-->>EP: TradeResponse
+    EP-->>Client: 200 OK + TradeResponse
+```
+
+#### 🔥 Developer Experience
+
+```csharp
+// 1️⃣ Define Contract (in NexusContract.Abstractions)
+// 🔥 Core: IApiRequest<TradeResponse> already declares the response type
+// 📋 Convention: Use [ApiField] for precise control over field mapping (e.g., snake_case), encryption marking, required constraints, etc.
+[ApiOperation("alipay.trade.create", HttpVerb.POST)]
+public class CreateTradeRequest : IApiRequest<TradeResponse>
+{
+    [ApiField("out_trade_no", IsRequired = true, Description = "Merchant order number")]
+    public string OutTradeNo { get; set; }
+    
+    [ApiField("total_amount", IsRequired = true, Description = "Order total amount in yuan")]
+    public decimal TotalAmount { get; set; }
+    
+    [ApiField("subject", IsRequired = true, Description = "Order title")]
+    public string Subject { get; set; }
+}
+
+// 2️⃣ Create Endpoint (in gateway project) - Only 1 line needed!
+// 🔥 Soul Design: No need to repeat TradeResponse, framework auto-infers from contract interface
+// 💎 .NET 10 Feature: Primary Constructor makes code extremely concise
+// ⚠️ Key: Endpoint body is completely empty, no business logic
+public sealed class TradeCreateEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<CreateTradeRequest>(engine) { }
+
+// Full commented version (can add XML documentation in actual development):
+/// <summary>Trade creation interface - Contract: [ApiOperation("alipay.trade.create")]</summary>
+public sealed class TradeCreateEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<CreateTradeRequest>(engine) { }
+
+// 3️⃣ Done! No additional configuration needed
+// ✅ Route auto-generated: /api/trade/create
+// ✅ Tenant auto-extracted: SysId, AppId
+// ✅ Engine auto-dispatched: Routes to AlipayProvider
+// ✅ Response auto-returned: await SendAsync(response) handled by base class
+// ✅ Exceptions auto-normalized: NxcErrorEnvelope globally unified
+// ✅ Logging auto-recorded: OperationId, TenantId
+```
+
+**This is NexusContract's advancement: Combined with .NET 10 Primary Constructor feature, 99% of boilerplate code disappears, Endpoint becomes a pure type declaration (1 line), developers only focus on business contracts.**
 
 ### B. Infrastructure: ISV Hybrid Resolver
 

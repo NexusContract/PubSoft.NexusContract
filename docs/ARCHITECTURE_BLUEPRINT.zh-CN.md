@@ -1,6 +1,6 @@
-# 🏛️ NexusContract 架构蓝图 v1.1 (Final Execution Release)
+# 🏛️ NexusContract 架构蓝图 v1.2 (Final Execution Release)
 
-> **版本:** 1.1 (ISV 多商户执行版)
+> **版本:** 1.2 (ISV 多商户执行版)
 > **状态:** ✅ 已批准 (Approved)
 > **日期:** 2026年1月10日
 > **场景:** 面向支付宝/微信支付的高并发 ISV 服务商网关 (上百商户动态接入)
@@ -143,11 +143,13 @@ public interface IUpstreamUrlBuilder
 
 采用 **模板方法模式**。基类接管路由、租户提取、引擎调度和 **NxcErrorEnvelope** 封装。
 
+#### 🔧 框架基类实现 (Framework Base Class)
+
 ```csharp
 // 核心基类：NexusEndpointBase
-public abstract class NexusEndpointBase<TReq, TResp> : Endpoint<TReq, TResp>
-    where TReq : class, IApiRequest<TResp>, new()
-    where TResp : class, new()
+// 🔥 关键设计：仅需传入 TReq，框架自动从 IApiRequest<TResp> 推断响应类型
+public abstract class NexusEndpointBase<TReq> : Endpoint<TReq, TReq.TResponse>
+    where TReq : class, IApiRequest<TReq.TResponse>, new()
 {
     private readonly INexusEngine _engine; // 替换具体的 Provider，实现通用调度
     private readonly ILogger _logger;
@@ -203,6 +205,173 @@ public abstract class NexusEndpointBase<TReq, TResp> : Endpoint<TReq, TResp>
 }
 
 ```
+
+#### 🚀 业务 Endpoint 实现示例 (Zero-Code in Action)
+
+**传统方式 vs NexusContract 方式对比：**
+
+```csharp
+// ❌ 传统方式：每个 Endpoint 都需要大量样板代码 (70+ 行)
+// 注意：即使是传统方式，也需要显式指定 TradeResponse
+public class TradeCreateEndpoint_Traditional : Endpoint<CreateTradeRequest, TradeResponse>
+{
+    private readonly IAlipayProvider _alipayProvider;
+    private readonly ILogger<TradeCreateEndpoint_Traditional> _logger;
+
+    public TradeCreateEndpoint_Traditional(IAlipayProvider alipayProvider, ILogger<...> logger)
+    {
+        _alipayProvider = alipayProvider;
+        _logger = logger;
+    }
+
+    public override void Configure()
+    {
+        Post("/api/alipay/trade/create");  // 硬编码路由
+        AllowAnonymous();
+    }
+
+    public override async Task HandleAsync(CreateTradeRequest req, CancellationToken ct)
+    {
+        try
+        {
+            // 手动提取租户信息
+            var sysId = HttpContext.Request.Headers["X-SysId"].ToString();
+            var appId = req.AppId ?? HttpContext.Request.Headers["X-AppId"].ToString();
+            
+            if (string.IsNullOrEmpty(sysId) || string.IsNullOrEmpty(appId))
+                throw new ArgumentException("缺少租户标识");
+
+            // 手动调用 Provider
+            var response = await _alipayProvider.ExecuteAsync(req, ct);
+            await SendAsync(response);
+        }
+        // 手动异常处理
+        catch (ContractIncompleteException ex)
+        {
+            await SendAsync(new ErrorResponse 
+            { 
+                Code = "NXC200", 
+                Message = ex.Message 
+            }, 400);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "支付宝交易创建失败");
+            await SendAsync(new ErrorResponse 
+            { 
+                Code = "NXC999", 
+                Message = "Internal Server Error" 
+            }, 500);
+        }
+    }
+}
+
+// ✅ NexusContract 方式：极致简洁，真正的零代码 (1 行！)
+// 🔥 关键：无需指定响应类型！框架从 IApiRequest<TradeResponse> 自动推断
+// 💎 .NET 10 特性：主构造函数（Primary Constructor）彻底消除构造函数样板
+public sealed class TradeCreateEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<CreateTradeRequest>(engine) { }
+
+// ✅ 同样适用于其他所有 Endpoint - 响应类型由契约接口决定
+public sealed class TradePayEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<TradePayRequest>(engine) { }
+
+public sealed class TradeQueryEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<TradeQueryRequest>(engine) { }
+
+public sealed class TradeRefundEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<TradeRefundRequest>(engine) { }
+
+// ✅ 跨渠道一致性：微信支付 Endpoint 结构完全相同  此处只是举例 一般HostApi不会同时存在两类三方
+public sealed class WeChatPayEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<WeChatPayRequest>(engine) { }
+
+```
+
+#### 🎯 框架先进性体现 (Key Advantages)
+
+| 维度 | 传统方式 | NexusContract | 优势 |
+|------|---------|---------------|------|
+| **代码量** | 每个 Endpoint 70+ 行 | 每个 Endpoint 1 行 (.NET 10) | **99% 代码削减** |
+| **路由配置** | 硬编码字符串 | 元数据自动生成 | 零硬编码，类型安全 |
+| **租户提取** | 手动解析 Header/Body | 自动识别与提取 | 框架自动处理 |
+| **异常处理** | 每个 Endpoint 重复 | 基类统一处理 | 全局一致性 |
+| **错误格式** | 自定义 ErrorResponse | 标准 NxcErrorEnvelope | 契约规范化 |
+| **可测试性** | 需 Mock HttpContext | 纯 POCO 单元测试 | 无基础设施依赖 |
+| **新增 API** | 复制粘贴 70 行模板 | 1 行即可完成 | **70 倍开发效率** |
+| **跨渠道一致** | 每个渠道定制实现 | 完全统一结构 | 降低认知负担 |
+
+#### 💡 实际运行效果
+
+当请求 `POST /api/trade/create` 时，框架自动完成：
+
+```mermaid
+sequenceDiagram
+    participant Client as 客户端
+    participant EP as TradeCreateEndpoint
+    participant Registry as MetadataRegistry
+    participant Factory as TenantContextFactory
+    participant Engine as NexusEngine
+    participant Provider as AlipayProvider
+
+    Client->>EP: POST /api/trade/create
+    Note over EP: 1. Configure() 执行
+    EP->>Registry: GetMetadata(CreateTradeRequest)
+    Registry-->>EP: Operation="alipay.trade.create"
+    Note over EP: 自动注册路由 "/api/trade/create"
+    
+    Note over EP: 2. HandleAsync() 执行
+    EP->>Factory: Create(req, HttpContext)
+    Factory-->>EP: TenantContext(SysId, AppId)
+    
+    EP->>Engine: ExecuteAsync(req, tenantCtx)
+    Engine->>Provider: ExecuteAsync(req, ctx)
+    Provider-->>Engine: TradeResponse
+    Engine-->>EP: TradeResponse
+    EP-->>Client: 200 OK + TradeResponse
+```
+
+#### 🔥 开发者体验 (Developer Experience)
+
+```csharp
+// 1️⃣ 定义契约 (在 NexusContract.Abstractions 中)
+// 🔥 核心：IApiRequest<TradeResponse> 已经声明了响应类型
+// 📋 规范：使用 [ApiField] 精确控制字段映射（如 snake_case）、加密标记、必填约束等
+[ApiOperation("alipay.trade.create", HttpVerb.POST)]
+public class CreateTradeRequest : IApiRequest<TradeResponse>
+{
+    [ApiField("out_trade_no", IsRequired = true, Description = "商户订单号")]
+    public string OutTradeNo { get; set; }
+    
+    [ApiField("total_amount", IsRequired = true, Description = "订单总金额，单位：元")]
+    public decimal TotalAmount { get; set; }
+    
+    [ApiField("subject", IsRequired = true, Description = "订单标题")]
+    public string Subject { get; set; }
+}
+
+// 2️⃣ 创建 Endpoint (在网关项目中) - 仅需 1 行！
+// 🔥 灵魂设计：无需重复指定 TradeResponse，框架从契约接口自动推断
+// 💎 .NET 10 特性：主构造函数（Primary Constructor）让代码极致简洁
+// ⚠️ 关键：Endpoint 内部完全为空，无任何业务逻辑
+public sealed class TradeCreateEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<CreateTradeRequest>(engine) { }
+
+// 完整注释版本（实际开发可加 XML 文档注释）：
+/// <summary>交易创建接口 - 契约: [ApiOperation("alipay.trade.create")]</summary>
+public sealed class TradeCreateEndpoint(INexusEngine engine) 
+    : NexusEndpointBase<CreateTradeRequest>(engine) { }
+
+// 3️⃣ 完成！无需任何额外配置
+// ✅ 路由自动生成：/api/trade/create
+// ✅ 租户自动提取：SysId、AppId
+// ✅ 引擎自动调度：路由到 AlipayProvider
+// ✅ 响应自动返回：await SendAsync(response) 由基类完成
+// ✅ 异常自动归一：NxcErrorEnvelope 全局统一
+// ✅ 日志自动记录：OperationId、TenantId
+```
+
+**这就是 NexusContract 的先进性：结合 .NET 10 主构造函数特性，让 99% 的样板代码消失，Endpoint 变成纯粹的类型声明（1行代码），开发者只需关注业务契约。**
 
 ### B. 基础设施：ISV 混合解析器 (Infrastructure)
 
@@ -273,6 +442,7 @@ builder.Services.AddSingleton<ITenantRepository, RedisTenantRepository>();
 
 // 3. 注册 Providers
 builder.Services.AddSingleton<IProvider, AlipayProvider>();
+builder.Services.AddSingleton<IProvider, WeChatProvider>();
 
 // 4. 生产环境出口 (YARP)
 if (builder.Environment.IsProduction())
@@ -305,7 +475,7 @@ app.Run();
 
 
 
-### ISV 增强架构 (v1.1 新增)
+### ISV 增强架构 (v1.2 新增)
 
 * **ADR-004: 动态配置 (JIT Configuration)**
 * **变更:** 废弃静态 `IOptions` 单例注入。
