@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using NexusContract.Abstractions.Security;
 using NexusContract.Abstractions.Configuration;
@@ -35,15 +36,20 @@ builder.Services.AddSingleton<ISecurityProvider>(securityProvider);
 
 // ==================== 步骤3：注册配置解析器（L1 MemoryCache + L2 Redis + L3 Database） ====================
 var memoryCache = new MemoryCache(new MemoryCacheOptions());
-var configResolver = new HybridConfigResolver(
-    redis,
-    memoryCache,
-    securityProvider,
-    redisKeyPrefix: null,
-    l1Ttl: TimeSpan.FromMinutes(5),
-    l2Ttl: TimeSpan.FromMinutes(30)
-);
-builder.Services.AddSingleton<IConfigurationResolver>(configResolver);
+// register memory cache with DI so other services (e.g., resolver) can consume it
+builder.Services.AddSingleton<IMemoryCache>(memoryCache);
+
+// register IConfigurationResolver via DI factory so ILogger can be injected
+builder.Services.AddSingleton<IConfigurationResolver>(sp =>
+    new HybridConfigResolver(
+        sp.GetRequiredService<IConnectionMultiplexer>(),
+        sp.GetRequiredService<IMemoryCache>(),
+        sp.GetRequiredService<ISecurityProvider>(),
+        sp.GetRequiredService<ILogger<HybridConfigResolver>>(),
+        redisKeyPrefix: null,
+        l1Ttl: TimeSpan.FromMinutes(5),
+        l2Ttl: TimeSpan.FromMinutes(30)
+    ));
 
 // ==================== 步骤4：注册 YARP HTTP/2 传输层（带重试+熔断器） ====================
 builder.Services.AddNexusYarpTransport(options =>
@@ -58,6 +64,7 @@ builder.Services.AddSingleton<INexusEngine>(sp =>
 {
     var transport = sp.GetRequiredService<INexusTransport>();
     var gateway = new NexusGateway(new NexusContract.Core.Policies.Impl.SnakeCaseNamingPolicy());
+    var configResolver = sp.GetRequiredService<IConfigurationResolver>();
     var engine = new NexusEngine(configResolver);
 
     // 注册支付宝提供商适配器（桥接 IProvider → AlipayProvider）
