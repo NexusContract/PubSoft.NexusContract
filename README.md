@@ -64,8 +64,8 @@ NexusContract extends the **REPR (Request–Endpoint–Response)** pattern from
   `NexusGateway`  
   The orchestration kernel that executes the pipeline and routes calls to Providers
 
-> Business logic never leaks into transport layers.  
-> Transport concerns never pollute contracts.
+> Aim to prevent business logic from leaking into transport layers.
+> Avoid embedding transport concerns in contracts; keep contracts focused on business semantics.
 
 ---
 

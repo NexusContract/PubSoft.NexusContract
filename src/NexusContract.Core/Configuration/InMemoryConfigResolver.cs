@@ -23,7 +23,7 @@ namespace NexusContract.Core.Configuration
     /// - 纯内存存储（ConcurrentDictionary）
     /// - 无外部依赖（不需要数据库或 Redis）
     /// - 支持动态添加/更新/删除配置
-    /// - 线程安全（ConcurrentDictionary 保证）
+    /// - 线程安全（使用 ConcurrentDictionary 可减少并发问题，但请在高并发场景下进行验证）
     /// - 文件监控（可选，支持从 JSON 文件热加载）
     /// 
     /// 适用场景：
@@ -40,7 +40,7 @@ namespace NexusContract.Core.Configuration
     /// 性能特征：
     /// - 查询延迟：极快（纯内存访问）
     /// - 内存占用：~1KB/配置（假设密钥 2048 位）
-    /// - 并发能力：无限制（ConcurrentDictionary 无锁读）
+    /// - 并发能力：受限于内存与实现细节（ConcurrentDictionary 提供高效并发读写性能，但仍建议在目标负载下进行验证）
     /// </summary>
     public sealed class InMemoryConfigResolver : IConfigurationResolver, IDisposable
     {
