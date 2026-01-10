@@ -94,8 +94,8 @@ namespace NexusContract.Hosting.Configuration
             await writeConfigTask.ConfigureAwait(false);
             await transaction.ExecuteAsync().ConfigureAwait(false);
 
-            // 🔥 新商家上线隔离策略：主动预热网关缓存（确定性下发）
-            // 让新商家的配置加载 100% 发生在"主动推送"路径，避免冷启动风险
+            // 🔥 新商家上线隔离策略：主动预热网关缓存（优先使用主动下发）
+            // 优先通过"主动推送"路径加载新商家配置，以减少冷启动风险（需在目标环境中验证覆盖率）
             await PreWarmGatewayAsync(providerName, realmId, ct).ConfigureAwait(false);
         }
 
@@ -320,25 +320,29 @@ namespace NexusContract.Hosting.Configuration
         }
 
         /// <summary>
-        /// 预热网关缓存（新商家上线隔离策略 - ADR-009 Section 4.7）
+        /// 预热网关缓存（新商家上线隔离策略 - ADR-009 Section 4.5.1）
         /// 
-        /// 核心思想：让新商家的配置加载 100% 发生在"主动推送"路径，避免冷启动风险
+        /// 架构修正（2026-01-11）：
+        /// Map层职责已上移到BFF，BFF可以接受"轻微抖动"（非核心路径，用户无感）。
+        /// 因此简化为"订阅-清除"模式，无需携带全量ProfileIds载荷。
+        /// 
+        /// 核心思想：触发网关清除Map缓存，下次请求时自动触发ColdStartSyncAsync回源Redis
         /// 
         /// 业务流程：
         /// 1. 管理端保存配置后，自动调用本方法
-        /// 2. 从 Redis 获取最新全量 Map（SMEMBERS）
-        /// 3. 通过 Pub/Sub 推送到所有网关实例
-        /// 4. ISV 手动测试（扫码支付）→ 验证配置生效
-        /// 5. 如果失败 → 点击"手动刷新"按钮 → 重新触发预热
+        /// 2. 发送 MappingChange 消息（不携带 AuthorizedProfileIds）
+        /// 3. 网关实例收到消息后删除Map缓存
+        /// 4. 下次请求时触发 ColdStartSyncAsync → Redis SMEMBERS → 缓存重建
+        /// 5. ISV 手动测试（扫码支付）→ 验证配置生效
         /// 
         /// 隔离效果：
-        /// - 主路径（预热推送）：管理端保存配置 → Redis 查询 1 次 → 0 影响
-        /// - 兜底路径（冷启动）：Pub/Sub 丢失或实例重启 → Redis 查询 + 500ms 超时保护 → 仅新商家失败
+        /// - 主路径（订阅清除）：管理端发消息 → 网关删缓存 → 0 影响
+        /// - 兜底路径（冷启动）：首次请求回源 Redis（+10~50ms）→ 通常仅影响新商家；老商家影响最小（取决于并发与消息投递可靠性）
         /// 
         /// 核心收益：
-        /// - ✅ 确定性下发：新商家配置 100% 依赖主动推送，减少冷启动依赖
-        /// - ✅ 手动验证：ISV 测试失败可重试，不依赖"自动恢复"
-        /// - ✅ 资源隔离：即便极端场景下冷启动失败，也不会拖累老商家
+        /// - ✅ 简化消息设计：无需推送大量ProfileIds列表，减少带宽消耗
+        /// - ✅ 容忍轻微抖动：BFF层回源延迟在扫码场景下用户通常无感
+        /// - 资源隔离：复合键有助于降低变更影响范围；隔离效果取决于消息投递可靠性与缓存策略配置
         /// </summary>
         /// <param name="providerName">供应商名称</param>
         /// <param name="realmId">租户 ID</param>
@@ -355,26 +359,14 @@ namespace NexusContract.Hosting.Configuration
 
             try
             {
-                // 1. 从 Redis 获取最新全量 Map（SMEMBERS）
-                string mapKey = BuildMapKey(realmId, providerName);
-                var profileIds = await _redisDb.SetMembersAsync(mapKey).ConfigureAwait(false);
-
-                if (profileIds == null || profileIds.Length == 0)
-                {
-                    _logger?.LogWarning(
-                        "PreWarm: No profiles found for Realm {RealmId} in Provider {ProviderName}, skip pre-warming",
-                        realmId, providerName);
-                    return;
-                }
-
-                // 2. 推送到所有网关实例（Pub/Sub）
-                // 使用 MappingChange 类型，触发原子替换策略（带 AuthorizedProfileIds）
+                // 发送"订阅-清除"消息（不携带AuthorizedProfileIds）
+                // 网关收到后删除Map缓存，下次请求自动回源Redis
                 var message = JsonSerializer.Serialize(new
                 {
                     RealmId = realmId,
                     ProviderName = providerName,
-                    Type = 1, // RefreshType.MappingChange
-                    AuthorizedProfileIds = profileIds.Select(x => x.ToString()).ToArray()
+                    Type = 1 // RefreshType.MappingChange
+                    // ⚠️ 不携带 AuthorizedProfileIds（与 ADR-009 Section 4.5.1 一致）
                 }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
 
                 await _redisSub.PublishAsync(
@@ -383,14 +375,14 @@ namespace NexusContract.Hosting.Configuration
                 ).ConfigureAwait(false);
 
                 _logger?.LogInformation(
-                    "PreWarm: Gateway cache pre-warmed for Realm {RealmId} in Provider {ProviderName} with {Count} profiles",
-                    realmId, providerName, profileIds.Length);
+                    "PreWarm: Gateway Map cache invalidated for Realm {RealmId} in Provider {ProviderName} (subscribe-clear mode)",
+                    realmId, providerName);
             }
             catch (Exception ex)
             {
                 // 预热失败不应阻塞业务流程（冷启动自愈机制兜底）
                 _logger?.LogError(ex,
-                    "PreWarm: Failed to pre-warm gateway for Realm {RealmId} in Provider {ProviderName}. " +
+                    "PreWarm: Failed to invalidate gateway Map cache for Realm {RealmId} in Provider {ProviderName}. " +
                     "Cold start self-healing will handle first request.",
                     realmId, providerName);
             }

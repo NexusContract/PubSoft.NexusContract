@@ -33,7 +33,7 @@ namespace NexusContract.Hosting.Configuration
     /// 架构决策（ADR-008: Redis-First Tenant Storage）：
     /// - 使用 Redis 作为租户配置主数据源（替代关系型数据库）
     /// - 理由：ISV 场景配置变更低频、读多写少、KV 结构、无复杂查询需求
-    /// - 持久化：Redis RDB（每小时）+ AOF（每秒）保证数据安全
+    /// - 持久化：Redis RDB（每小时）+ AOF（每秒）用于增强持久性，但仍需结合备份/恢复策略进行全面保障
     /// - 审计：可选接入外部审计服务（异步写入 MySQL/PostgreSQL）
     /// 
     /// 缓存策略：
@@ -79,7 +79,7 @@ namespace NexusContract.Hosting.Configuration
         /// 设计理念（适配就餐支付高实时性场景）：
         /// - ISV 配置极少变更（通常以"年"为单位，极端情况 5 年不变）
         /// - 滑动过期：只要有业务流量，缓存持续有效（消除"12小时卡点"）
-        /// - Redis Pub/Sub 保证变更时主动刷新（秒级生效）
+        /// - Redis Pub/Sub 用于尽快通知并触发刷新，通常可实现秒级响应，但取决于部署与网络可靠性
         /// - 30天绝对过期作为"僵尸数据"的最终清理（防止配置永久驻留）
         /// 
         /// 业务收益（就餐支付场景）：
@@ -134,7 +134,7 @@ namespace NexusContract.Hosting.Configuration
         /// 
         /// 设计理念（防穿透攻击）：
         /// - 缓存不存在的配置（避免恶意请求反复查询 Redis）
-        /// - TTL 不宜过长（1 分钟），保证新配置上线后 1 分钟内可用
+        /// - 建议短 TTL（如 1 分钟）以便配置快速生效，但实际可用时间依赖于部署与回源策略
         /// - 足以抵御短时间内的穿透攻击（如暴力扫描 RealmId）
         /// </summary>
         private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromMinutes(1);
@@ -332,7 +332,7 @@ namespace NexusContract.Hosting.Configuration
         /// 
         /// 实现方式（ADR-009）：
         /// - L1 缓存整个 HashSet（map 层）
-        /// - 使用 SlidingExpiration（24h）+ NeverRemove 保证高命中率
+        /// - 使用 SlidingExpiration（24h）+ NeverRemove，旨在提高 L1 命中率（需监控内存使用与命中率）
         /// - 冷启动自愈：L1 未命中时自动从 Redis 拉取并缓存
         /// - 负缓存：空 Set 缓存 5 分钟（防止恶意探测不存在的 Realm）
         /// 
@@ -739,31 +739,14 @@ namespace NexusContract.Hosting.Configuration
                         break;
 
                     case RefreshType.MappingChange:
-                        // 映射关系变更：原子替换策略（推送全量列表）
-                        if (refreshData.AuthorizedProfileIds != null && refreshData.AuthorizedProfileIds.Count > 0)
-                        {
-                            // 原子替换：直接构造新 HashSet 覆盖旧缓存
-                            var newMapSet = new HashSet<string>(
-                                refreshData.AuthorizedProfileIds,
-                                StringComparer.OrdinalIgnoreCase);
-
-                            _memoryCache.Set(mapCacheKey, newMapSet, new MemoryCacheEntryOptions
-                            {
-                                SlidingExpiration = _l1Ttl,
-                                AbsoluteExpirationRelativeToNow = DefaultL1AbsoluteExpiration,
-                                Priority = CacheItemPriority.NeverRemove,
-                                Size = 1
-                            });
-
-                            _logger.LogInformation(
-                                "Map atomically updated for Realm {RealmId}: {Count} profiles",
-                                refreshData.RealmId, newMapSet.Count);
-                        }
-                        else
-                        {
-                            // 降级策略：如果消息未携带列表，则清除缓存（下次查询时回源）
-                            _memoryCache.Remove(mapCacheKey);
-                        }
+                        // ✅ Map层：订阅-清除模式（ADR-009 Section 4.5.1）
+                        // 架构修正（2026-01-11）：Map层职责上移到BFF后，BFF可以接受"轻微抖动"
+                        // 简化为删除缓存，下次请求自动触发 ColdStartSyncAsync 回源 Redis
+                        _memoryCache.Remove(mapCacheKey);
+                        
+                        _logger.LogInformation(
+                            "Map cache invalidated for Realm {RealmId}: next request will trigger ColdStartSyncAsync (subscribe-clear mode)",
+                            refreshData.RealmId);
                         break;
 
                     case RefreshType.FullRefresh:

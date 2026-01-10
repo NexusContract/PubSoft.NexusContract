@@ -52,7 +52,7 @@ namespace NexusContract.Core.Engine
     /// 
     /// 设计约束：
     /// - Provider 必须无状态（配置通过方法参数传递）
-    /// - 线程安全（ConcurrentDictionary 保证）
+    /// - 线程安全（使用 ConcurrentDictionary 减少并发问题，但在高并发场景下应进行验证）
     /// - 支持运行时动态注册 Provider
     /// </summary>
     /// <remarks>

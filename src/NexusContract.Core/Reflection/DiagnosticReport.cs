@@ -271,13 +271,13 @@ namespace NexusContract.Core.Reflection
             {
                 if (isChinese)
                 {
-                    sb.AppendLine("✅ 完美！(Perfect!):");
-                    sb.AppendLine("   所有契约均符合 NexusContract 规范，零违宪。");
+                    sb.AppendLine("✅ Passed:");
+                    sb.AppendLine("   All contracts comply with NexusContract specifications (no violations detected).");
                 }
                 else
                 {
-                    sb.AppendLine("✅ Perfect!:");
-                    sb.AppendLine("   All contracts comply with NexusContract specifications, zero violations.");
+                    sb.AppendLine("✅ Passed:");
+                    sb.AppendLine("   All contracts comply with NexusContract specifications (no violations detected).");
                 }
             }
 
