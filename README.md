@@ -66,6 +66,10 @@ NexusContract extends the **REPR (Request–Endpoint–Response)** pattern from
 
 > Aim to prevent business logic from leaking into transport layers.
 > Avoid embedding transport concerns in contracts; keep contracts focused on business semantics.
+>
+> **Note**: Violations should be detected before traffic is live where feasible; this improves safety but may require staged validation in complex deployments.
+
+This separation helps ensure NexusContract remains usable in modular deployments.
 
 ---
 
