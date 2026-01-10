@@ -2,11 +2,11 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using Demo.Alipay.Contract.Transactions;
-using NexusContract.Providers.Alipay;
+using NexusContract.Abstractions.Core;
 
 namespace Demo.Alipay.HttpApi.Endpoints;
 
-/// <summary>交易退款接口 - 契约: [ApiOperation("alipay.trade.refund")]</summary>
-public class TradeRefundEndpoint(AlipayProvider alipayProvider) : AlipayEndpointBase<TradeRefundRequest>(alipayProvider)
+/// <summary>交易退款接口 - 契约: [ApiOperation("alipay.trade.refund")]（ISV多租户架构）</summary>
+public class TradeRefundEndpoint(INexusEngine engine) : AlipayEndpointBase<TradeRefundRequest>(engine)
 {
 }

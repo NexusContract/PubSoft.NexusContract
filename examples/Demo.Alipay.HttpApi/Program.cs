@@ -1,6 +1,3 @@
-// Copyright (c) 2025-2026 PubSoft (pubsoft@gmail.com). All rights reserved.
-// Licensed under the MIT License. See LICENSE in the project root for license information.
-
 using System;
 using System.Linq;
 using FastEndpoints;
@@ -8,59 +5,123 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Caching.Memory;
+using StackExchange.Redis;
+using NexusContract.Abstractions.Security;
+using NexusContract.Abstractions.Configuration;
+using NexusContract.Abstractions.Transport;
+using NexusContract.Abstractions.Core;
+using NexusContract.Core;
+using NexusContract.Core.Engine;
+using NexusContract.Hosting.Security;
+using NexusContract.Hosting.Configuration;
+using NexusContract.Hosting.Yarp;
 using NexusContract.Providers.Alipay;
-using NexusContract.Providers.Alipay.ServiceConfiguration;
 using NexusContract.Core.Reflection;
-using NexusContract.Abstractions.Attributes;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ==================== 步骤1：注册支付宝提供商 ====================
-builder.Services.AddAlipayProvider(new AlipayProviderConfig
+// ==================== 步骤1：注册 Redis（L2缓存 + 跨实例失效通知） ====================
+var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+var redis = ConnectionMultiplexer.Connect(redisConnectionString);
+builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
+
+// ==================== 步骤2：注册安全提供者（AES加密/解密 PrivateKey） ====================
+var masterKey = builder.Configuration["Security:MasterKey"] ?? "DEMO-MASTER-KEY-32-BYTES-LONG!"; // 生产环境必须从安全存储加载
+var securityProvider = new AesSecurityProvider(masterKey);
+builder.Services.AddSingleton<ISecurityProvider>(securityProvider);
+
+// ==================== 步骤3：注册配置解析器（L1 MemoryCache + L2 Redis + L3 Database） ====================
+var memoryCache = new MemoryCache(new MemoryCacheOptions());
+var configResolver = new HybridConfigResolver(
+    redis,
+    memoryCache,
+    securityProvider,
+    redisKeyPrefix: null,
+    l1Ttl: TimeSpan.FromMinutes(5),
+    l2Ttl: TimeSpan.FromMinutes(30)
+);
+builder.Services.AddSingleton<IConfigurationResolver>(configResolver);
+
+// ==================== 步骤4：注册 YARP HTTP/2 传输层（带重试+熔断器） ====================
+builder.Services.AddNexusYarpTransport(options =>
 {
-    AppId = builder.Configuration["Alipay:AppId"] ?? "2021...",
-    MerchantId = builder.Configuration["Alipay:MerchantId"] ?? "2088...",
-    PrivateKey = builder.Configuration["Alipay:PrivateKey"] ?? "MIIEvQIBA...",
-    AlipayPublicKey = builder.Configuration["Alipay:AlipayPublicKey"] ?? "MIIBIjANBgkqh...",
-    ApiGateway = new Uri("https://openapi.alipay.com/"),
-    UseSandbox = builder.Configuration.GetValue<bool>("Alipay:UseSandbox"),
-    RequestTimeout = TimeSpan.FromSeconds(30)
+    options.RequestTimeout = TimeSpan.FromSeconds(30);
+    options.RetryCount = 3;
+    options.CircuitBreakerFailureThreshold = 5;
 });
 
-// ==================== 步骤2：注册FastEndpoints ====================
+// ==================== 步骤5：注册 NexusEngine（ISV多租户调度引擎） ====================
+builder.Services.AddSingleton<INexusEngine>(sp =>
+{
+    var transport = sp.GetRequiredService<INexusTransport>();
+    var gateway = new NexusGateway(new NexusContract.Core.Policies.Impl.SnakeCaseNamingPolicy());
+    var engine = new NexusEngine(configResolver);
+    
+    // 注册支付宝提供商适配器（桥接 IProvider → AlipayProvider）
+    var alipayAdapter = new AlipayProviderAdapter(transport, gateway);
+    engine.RegisterProvider("Alipay", alipayAdapter);
+    
+    return engine;
+});
+
+// ==================== 步骤6：注册FastEndpoints ====================
 builder.Services.AddFastEndpoints();
 
 var app = builder.Build();
 
-// ==================== 步骤3：配置中间件 ====================
+// ==================== 步骤7：传输层预热（HTTP/2连接池初始化） ====================
+var transport = app.Services.GetRequiredService<INexusTransport>();
+await transport.WarmupAsync(default);
+
+// ==================== 步骤8：配置中间件 ====================
 app.UseFastEndpoints(config =>
 {
     config.Endpoints.RoutePrefix = "v3/alipay";
 });
 
-// ==================== 步骤4：测试端点 ====================
-app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow });
+// ==================== 步骤9：测试端点 ====================
+app.MapGet("/health", () => new
+{
+    status = "healthy",
+    timestamp = DateTime.UtcNow,
+    architecture = "ISV Multi-Tenant (NexusEngine)",
+    providers = new[] { "Alipay" }
+});
+app.MapGet("/config-cache", () =>
+{
+    var adapter = (AlipayProviderAdapter)app.Services.GetRequiredService<INexusEngine>()
+        .GetType()
+        .GetField("_providers", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+        ?.GetValue(app.Services.GetRequiredService<INexusEngine>())
+        ?.GetType()
+        .GetProperty("Values")
+        ?.GetValue(null);
+    
+    return new
+    {
+        status = "config-cache-info",
+        message = "AlipayProviderAdapter 缓存轻量级配置对象，不缓存 Provider 实例",
+        note = "每个租户配置约 1KB，支持动态 JIT 加载"
+    };
+});
 
-// ==================== 步骤5：启动期契约健康检查（Fail-Fast + 全量诊断）====================
-// 【决策 A-307】无损全景扫描：启动期批量预加载并输出完整诊断报告
+// ==================== 步骤10：启动期契约健康检查（Fail-Fast + 全量诊断）====================
 Console.WriteLine("========================================");
 Console.WriteLine("NexusContract 启动期契约健康检查");
 Console.WriteLine("========================================");
 
 try
 {
-    // ✅ 新方式：使用 ContractStartupHealthCheck（一次性全量诊断）
     var report = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.Run(
         assemblies: new[] { typeof(Program).Assembly },
-        warmup: true,           // 预热投影器（推荐生产启用）
-        throwOnError: true      // 发现错误时抛出 ContractIncompleteException（Fail-Fast）
+        warmup: true,
+        throwOnError: true
     );
 
-    // 如果没有抛出异常，说明所有契约都通过验证
     Console.WriteLine($"\n✅ 契约健康检查通过：{report.SuccessCount} 个契约已验证");
     
-    // 可选：输出 JSON 报告（用于 CI/CD 集成）
     if (builder.Environment.IsDevelopment())
     {
         var jsonReport = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.GenerateJsonReport(
@@ -76,16 +137,13 @@ try
 }
 catch (NexusContract.Core.Exceptions.ContractIncompleteException ex)
 {
-    // ✅ 结构化异常处理
     Console.Error.WriteLine($"\n❌ 契约验证失败：");
     Console.Error.WriteLine($"   失败契约数：{ex.FailedContractCount}");
     Console.Error.WriteLine($"   错误总数：{ex.ErrorCount}（{ex.CriticalCount} 个致命错误）");
     Console.Error.WriteLine();
     
-    // 输出详细报告
     ex.Report.PrintToConsole(includeDetails: true);
     
-    // 保存 JSON 报告
     var jsonReport = NexusContract.Core.Diagnostics.ContractStartupHealthCheck.GenerateJsonReport(
         ex.Report,
         appId: "Demo.Alipay.HttpApi",
@@ -94,7 +152,6 @@ catch (NexusContract.Core.Exceptions.ContractIncompleteException ex)
     System.IO.File.WriteAllText("contract-errors.json", jsonReport);
     Console.Error.WriteLine("\n📄 详细报告已保存到: contract-errors.json");
     
-    // 阻断启动
     Console.Error.WriteLine("\n❌ 系统启动已阻断，请修复上述错误后重试。");
     Environment.Exit(1);
 }
@@ -108,15 +165,25 @@ catch (Exception ex)
 app.Run();
 
 /*
- * 支付宝API使用示例（契约驱动 - OpenAPI v3）
+ * 支付宝API ISV多租户架构使用示例
  * 
- * 架构说明：
- * 1. 客户端调用：FastEndpoints REST 风格（POST /v3/alipay/trade/pay）
- * 2. AlipayProvider 转发到：支付宝 OpenAPI v3（https://openapi.alipay.com/v3/alipay/trade/pay）
- * 3. 支付宝网关处理并返回结果
+ * 架构流程：
+ * 1. HTTP请求 → FastEndpoints → TenantContextFactory.FromHttpContext()
+ * 2. 提取租户身份 → INexusEngine.ExecuteAsync(request, identity, ct)
+ * 3. Engine查询 IConfigurationResolver → L1/L2/L3 加载租户配置
+ * 4. IProvider.ExecuteAsync(request, config, ct) → AlipayProviderAdapter
+ * 5. Adapter缓存配置 → 调用 AlipayProvider.ExecuteAsync(request, ct)
+ * 6. INexusTransport(YARP) → HTTP/2 + Retry + Circuit Breaker
+ * 7. 支付宝 OpenAPI v3 → 返回响应
  * 
- * 1. 交易支付接口
+ * 租户标识方式（3选1）：
+ * - HTTP Header: X-Tenant-Id: merchant_001
+ * - Query参数: ?tenantId=merchant_001
+ * - JWT Claim: "sub": "merchant_001"
+ * 
+ * 示例请求：
  * POST /v3/alipay/trade/pay
+ * X-Tenant-Id: merchant_001
  * Content-Type: application/json
  * 
  * {
@@ -127,27 +194,13 @@ app.Run();
  *   "authCode": "285015833990941919"
  * }
  * 
- * 2. 交易创建接口
- * POST /v3/alipay/trade/create
- * Content-Type: application/json
- * 
- * {
- *   "merchantOrderNo": "2024002",
- *   "totalAmount": 88.88,
- *   "subject": "测试订单2",
- *   "buyerId": "2088..."
- * }
- * 
- * 3. 交易查询接口
- * POST /v3/alipay/trade/query
- * Content-Type: application/json
- * 
- * {
- *   "merchantOrderNo": "2024001"
- * }
+ * 配置存储（HybridConfigResolver）：
+ * - L1: MemoryCache（5分钟TTL，进程内）
+ * - L2: Redis（30分钟TTL，跨实例共享 + Pub/Sub失效通知）
+ * - L3: Database（ITenantRepository接口，TODO待实现）
  * 
  * 路由规则：
- * - Contract中定义: [ApiOperation("alipay.trade.pay")]
- * - 自动转换为FastEndpoints路由: /v3/alipay/trade/pay
- * - AlipayProvider调用支付宝 OpenAPI v3: https://openapi.alipay.com/v3/alipay/trade/pay
+ * - Contract定义: [ApiOperation("alipay.trade.pay")]
+ * - FastEndpoints路由: POST /v3/alipay/trade/pay
+ * - OpenAPI v3调用: POST https://openapi.alipay.com/v3/alipay/trade/pay
  */

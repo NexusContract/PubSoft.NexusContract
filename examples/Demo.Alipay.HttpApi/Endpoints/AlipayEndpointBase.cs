@@ -3,48 +3,47 @@
 
 using System;
 using System.Linq;
-using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using FastEndpoints;
 using NexusContract.Abstractions.Attributes;
 using NexusContract.Abstractions.Contracts;
-using NexusContract.Providers.Alipay;
+using NexusContract.Abstractions.Core;
 using NexusContract.Core.Reflection;
+using NexusContract.Hosting.Factories;
 
 namespace Demo.Alipay.HttpApi.Endpoints
 {
     /// <summary>
-    /// 支付宝端点基类 - 契约驱动的自动化实现
+    /// 支付宝端点基类 - ISV多租户架构（使用 NexusEngine）
     /// 
-    /// 特性：
-    /// 1. 从Contract的[ApiOperation]自动提取路由
-    /// 2. 从Contract的IApiRequest&lt;TResponse&gt;自动推断响应类型
-    /// 3. 自动调用AlipayProvider执行请求
-    /// 4. 子类零代码实现，仅需类名声明
+    /// 架构流程：
+    /// 1. FastEndpoints 接收 HTTP 请求
+    /// 2. 从 HttpContext 提取租户身份（TenantContextFactory）
+    /// 3. 调用 INexusEngine.ExecuteAsync(request, identity, ct)
+    /// 4. Engine 自动路由到对应 IProvider（如 AlipayProviderAdapter）
+    /// 5. Provider 通过 INexusTransport 调用第三方 API
+    /// 
+    /// 租户标识（优先级顺序）：
+    /// - HTTP Header: X-Tenant-Id
+    /// - Query参数: ?tenantId=xxx
+    /// - JWT Claim: "sub" claim
     /// 
     /// 性能优化：
-    /// - 类级别静态缓存：每个 TRequest 类型的响应类型和 MethodInfo 只解析一次
-    /// - 比字典查询更快（直接访问静态字段，零哈希计算）
+    /// - 类级别静态缓存：每个 TRequest 类型的响应类型只解析一次
+    /// - Engine内部：HybridConfigResolver（L1/L2/L3缓存）
+    /// - Provider内部：AlipayProviderAdapter 缓存轻量级配置对象
     /// </summary>
-    public abstract class AlipayEndpointBase<TRequest>(AlipayProvider alipayProvider) : Endpoint<TRequest>
+    public abstract class AlipayEndpointBase<TRequest>(INexusEngine engine) : Endpoint<TRequest>
         where TRequest : class, IApiRequest
     {
-        private readonly AlipayProvider _alipayProvider = alipayProvider ?? throw new ArgumentNullException(nameof(alipayProvider));
+        private readonly INexusEngine _engine = engine ?? throw new ArgumentNullException(nameof(engine));
 
         /// <summary>
         /// 类级别缓存：TRequest 的响应类型（每个泛型实例化只计算一次）
-        /// 例如：AlipayEndpointBase&lt;TradePayRequest&gt; 和 AlipayEndpointBase&lt;TradeRefundRequest&gt; 各有独立的静态字段
         /// </summary>
         private static readonly Type CachedResponseType = ExtractResponseType();
-
-        /// <summary>
-        /// 类级别缓存：ExecuteAsync 的 MethodInfo（避免重复反射）
-        /// </summary>
-        private static readonly MethodInfo CachedExecuteMethod = typeof(AlipayProvider)
-            .GetMethod(nameof(AlipayProvider.ExecuteAsync))!
-            .MakeGenericMethod(CachedResponseType);
 
         /// <summary>
         /// 从 TRequest 提取响应类型（启动时执行一次）
@@ -60,7 +59,6 @@ namespace Demo.Alipay.HttpApi.Endpoints
 
         public override void Configure()
         {
-            // 使用契约元数据注册表获取元数据（自动缓存）
             var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(typeof(TRequest));
 
             if (metadata.Operation == null)
@@ -70,8 +68,6 @@ namespace Demo.Alipay.HttpApi.Endpoints
             }
 
             // 转换路由：alipay.trade.create → trade/create
-            // 支付宝Contract中定义的是method参数（如alipay.trade.create）
-            // 需要转换为REST风格路由（如 /trade/create）
             string methodName = metadata.Operation.OperationId;
             string route = methodName.StartsWith("alipay.", StringComparison.OrdinalIgnoreCase)
                 ? methodName.Substring("alipay.".Length).Replace('.', '/')
@@ -103,14 +99,20 @@ namespace Demo.Alipay.HttpApi.Endpoints
         /// <inheritdoc />
         public override async Task HandleAsync(TRequest req, CancellationToken ct)
         {
-            // 直接使用类级别缓存（零开销）
-            Task responseTask = (Task)CachedExecuteMethod.Invoke(_alipayProvider, new object[] { req, ct })!;
+            // 步骤1：从 HttpContext 提取租户身份
+            var identity = await TenantContextFactory.CreateAsync(HttpContext);
+
+            // 步骤2：调用 Engine 执行请求（自动路由到 AlipayProviderAdapter）
+            var executeMethod = typeof(INexusEngine)
+                .GetMethod(nameof(INexusEngine.ExecuteAsync))!
+                .MakeGenericMethod(CachedResponseType);
+
+            var responseTask = (Task)executeMethod.Invoke(_engine, new object[] { req, identity, ct })!;
             await responseTask.ConfigureAwait(false);
 
-            // 提取结果
+            // 步骤3：提取结果并写入响应
             object? result = responseTask.GetType().GetProperty("Result")!.GetValue(responseTask);
 
-            // 序列化并写入HTTP响应
             HttpContext.Response.ContentType = "application/json";
             await JsonSerializer.SerializeAsync(HttpContext.Response.Body, result, CachedResponseType, cancellationToken: ct);
         }

@@ -11,10 +11,13 @@
   <ItemGroup>
     <PackageReference Include="FastEndpoints" Version="7.1.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NexusContract.Core\NexusContract.Core.csproj" />
+    <ProjectReference Include="..\..\src\NexusContract.Hosting\NexusContract.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\NexusContract.Hosting.Yarp\NexusContract.Hosting.Yarp.csproj" />
     <ProjectReference Include="..\..\src\Providers\NexusContract.Providers.Alipay\NexusContract.Providers.Alipay.csproj" />
     <ProjectReference Include="..\Demo.Alipay.Contract\Demo.Alipay.Contract.csproj" />
   </ItemGroup>

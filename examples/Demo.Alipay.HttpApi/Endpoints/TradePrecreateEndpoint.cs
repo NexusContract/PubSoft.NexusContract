@@ -2,11 +2,11 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using Demo.Alipay.Contract.Transactions;
-using NexusContract.Providers.Alipay;
+using NexusContract.Abstractions.Core;
 
 namespace Demo.Alipay.HttpApi.Endpoints;
 
-/// <summary>交易预创建接口 - 契约: [ApiOperation("alipay.trade.precreate")]</summary>
-public class TradePrecreateEndpoint(AlipayProvider alipayProvider) : AlipayEndpointBase<TradePrecreateRequest>(alipayProvider)
+/// <summary>交易预创建接口 - 契约: [ApiOperation("alipay.trade.precreate")]（ISV多租户架构）</summary>
+public class TradePrecreateEndpoint(INexusEngine engine) : AlipayEndpointBase<TradePrecreateRequest>(engine)
 {
 }
