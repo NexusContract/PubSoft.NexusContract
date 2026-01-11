@@ -101,7 +101,7 @@ public class TenantContextFactory
 {
     /// <summary>
     /// 从 URL 路径显式提取 ProfileId
-    /// 例如：POST /merchants/{merchantId}/trade/pay
+    /// 例如：POST /merchants/{profileId}/trade/pay
     /// </summary>
     public static TenantContext FromUrlPath(HttpContext ctx, string profileId, string providerName)
     {
@@ -127,8 +127,8 @@ public override async Task HandleAsync(TradePayRequest req, CancellationToken ct
 // NEW: 显式路径参数
 public override async Task HandleAsync(TradePayRequest req, CancellationToken ct)
 {
-    var profileId = HttpContext.GetRouteValue("merchantId")?.ToString()
-        ?? throw new BadHttpRequestException("Missing merchantId in URL");
+    var profileId = HttpContext.GetRouteValue("profileId")?.ToString()
+        ?? throw new BadHttpRequestException("Missing profileId in URL");
     
     var tenantCtx = TenantContextFactory.FromUrlPath(HttpContext, profileId, "Alipay");
     var response = await _engine.ExecuteAsync(req, tenantCtx, ct);
@@ -518,10 +518,10 @@ public class TradeCreateRequest : IApiRequest<TradeCreateResponse>
 
 **物理约束：**
 ```
-POST /merchants/{merchantId}/trade/pay
+POST /merchants/{profileId}/trade/pay
 
 路由参数严格映射：
-- {merchantId} → profileId（唯一标识）
+- {profileId} → profileId（唯一标识）
 - API 操作 → 从 Contract 元数据读取
 
 禁止：
@@ -537,16 +537,13 @@ public sealed class TradePayEndpoint : NexusEndpoint<TradePayRequest>
     public override void Configure()
     {
         // 路由显式定义 ProfileId 位置
-        Post("/merchants/{merchantId:guid}/trade/pay");
+        Post("/merchants/{profileId:guid}/trade/pay");
     }
     
     public override async Task HandleAsync(TradePayRequest req, CancellationToken ct)
     {
         // 从路由参数显式提取
-        var merchantId = Route<Guid>("merchantId");
-        
-        // 转化为 ProfileId（可以是 GUID 的 Base36 编码）
-        var profileId = merchantId.ToString("N");
+        var profileId = Route<string>("profileId");
         
         var response = await _engine.ExecuteAsync(req, "Alipay", profileId, ct);
         await SendAsync(response);
@@ -602,10 +599,10 @@ Gate 责任（执行）：
 // BFF 层
 public class MerchantBizService
 {
-    public async Task<TradePayResponse> PayAsync(Guid merchantId, PaymentDto dto)
+    public async Task<TradePayResponse> PayAsync(Guid customerId, PaymentDto dto)
     {
-        // 1. 身份转换：merchantId → profileId
-        var profileId = merchantId.ToString("N");
+        // 1. 身份转换：customerId → profileId
+        var profileId = customerId.ToString("N");
         
         // 2. 业务转换：PaymentDto → TradePayRequest
         var request = new TradePayRequest

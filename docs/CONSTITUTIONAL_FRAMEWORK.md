@@ -57,63 +57,69 @@ metadata.Fields["out_trade_no"].IsRequired = false;  // 违反宪法 001
 ### 宪法 002：URL 资源寻址（URL-Based Resource Addressing）
 
 **物理原则：**  
-身份信息从 HTTP URL 路径显式给定，禁止从 Body、Header、Query 参数猜测或补全。每个资源由唯一的 URL 路径标识。
+ProfileId 从 HTTP URL 路径显式给定，禁止从 Body、Header、Query 参数猜测或补全。每个资源由唯一的 URL 路径标识。参数提取在 Endpoint 层直接处理，无中间容器。
 
 **具体约束：**
 
 ```csharp
-// ✅ CORRECT: URL 显式包含资源标识
-// POST /merchants/{merchantId}/trade/pay?sign=xxx
-[HttpPost("/merchants/{merchantId}/trade/pay")]
+// ✅ CORRECT: URL 显式包含资源标识 + NexusGuard 防御
+// POST /merchants/{profileId}/trade/pay
+[HttpPost("/merchants/{profileId}/trade/pay")]
 public sealed class TradePayEndpoint : NexusEndpoint<TradePayRequest>
 {
     public override async Task HandleAsync(TradePayRequest req, CancellationToken ct)
     {
         // 从路径参数显式提取
-        var merchantId = Route<Guid>("merchantId");
-        var profileId = merchantId.ToString("N");
+        var profileId = Route<string>("profileId");
         
-        // ← ProfileId 来自 URL，不来自 Body
+        // 物理寻址卫哨：确保参数完整
+        NexusGuard.EnsurePhysicalAddress("Alipay", profileId, nameof(TradePayEndpoint));
+        
+        // ← ProfileId 来自 URL，已被 NexusGuard 验证
         var response = await _engine.ExecuteAsync(req, "Alipay", profileId, ct);
         await SendAsync(response);
     }
 }
 
-// ❌ 禁止：从 Body 猜测身份
+// ❌ 禁止：从 Body 猜测 ProfileId
 public override async Task HandleAsync(TradePayRequest req, CancellationToken ct)
 {
-    var merchantId = req.MerchantId;  // ← 违反宪法 002，身份不应来自 Body
+    var profileId = req.ProfileId;  // ← 违反宪法 002，ProfileId 不应来自 Body
     ...
 }
 
 // ❌ 禁止：从 Header 默认补全
-var merchantId = HttpContext.Request.Headers["X-MerchantId"] 
-    ?? Guid.NewGuid();  // ← 违反宪法 002，身份不应从 Header 猜测
+var profileId = HttpContext.Request.Headers["X-ProfileId"] 
+    ?? Guid.NewGuid().ToString();  // ← 违反宪法 002，ProfileId 不应从 Header 猜测
+
+// ❌ 禁止：存储身份容器
+var identity = await TenantContextFactory.CreateAsync(HttpContext);  // ← 已删除，禁止使用
 ```
 
 **验证清单：**
-- [ ] 所有 Endpoint URL 都包含 ProfileId 路径参数（如 `{merchantId}`, `{storeId}`)
-- [ ] TenantContextFactory 仅支持 URL 路径提取
-- [ ] 禁止 `Header["X-*"]` 身份补全
-- [ ] 禁止 `Body` 中隐含身份信息（如 `AppId` 字段）
-- [ ] Query 参数仅用于业务过滤（如 `?startDate=2026-01-01`），不用于身份
+- [ ] 所有 Endpoint URL 都包含 ProfileId 路径参数（如 `{profileId}`, `{storeId}`)
+- [ ] ProfileId 直接从 Route<T>() 提取，使用 NexusGuard.EnsurePhysicalAddress() 验证
+- [ ] 禁止 `Header["X-*"]` 身份补全或备选方案
+- [ ] 禁止 `Body` 中隐含 ProfileId 信息
+- [ ] 禁止使用 TenantContextFactory 或身份容器对象
 
 ---
 
 ### 宪法 003：物理槽位隔离（Physical Slot Isolation）
 
 **物理原则：**  
-每个 ProfileId 对应一个唯一的物理槽位（Redis Key），配置查询是 O(1) 精确匹配。Realm 仅保留审计意义，不参与寻址逻辑。
+每个 ProfileId 对应一个唯一的物理槽位（Redis Key），配置查询是 O(1) 精确匹配。NexusGuard 确保参数始终有效，无隐式回填或默认补全。
 
 **具体约束：**
 
 ```csharp
-// ✅ CORRECT: ProfileId 单元寻址
+// ✅ CORRECT: 使用 NexusGuard 确保物理地址完整
 public interface IConfigurationResolver
 {
     /// <summary>
     /// 从 Redis 精确查询配置（O(1)）
     /// Key: config:{provider}:{profileId}
+    /// 调用者责任：在 Endpoint 层使用 NexusGuard.EnsurePhysicalAddress() 验证
     /// </summary>
     Task<IProviderConfiguration> ResolveAsync(
         string providerName,
@@ -122,7 +128,7 @@ public interface IConfigurationResolver
 }
 
 // Redis 数据结构：
-// Key: config:Alipay:merchant-001
+// Key: config:Alipay:2021001234567890
 // Value: {
 //   "ProviderName": "Alipay",
 //   "AppId": "2021...",
@@ -131,58 +137,71 @@ public interface IConfigurationResolver
 //   "GatewayUrl": "https://openapi.alipay.com/"
 // }
 
-// ❌ 禁止：复杂查询或 Realm 依赖
-var config = await resolver.ResolveAsync(
-    new ConfigurationContext("Alipay", "merchant-realm-001")
+// ✅ Endpoint 层示例
+[HttpPost("/merchants/{profileId}/trade/create")]
+public class TradeCreateEndpoint : NexusEndpoint<TradeCreateRequest>
+{
+    public override async Task HandleAsync(TradeCreateRequest req, CancellationToken ct)
     {
-        ProfileId = "merchant-001"
-    });  // ← 违反宪法 003，复杂身份转换
+        var profileId = Route<string>("profileId");
+        
+        // NexusGuard 防御性检查：确保参数不为空
+        NexusGuard.EnsurePhysicalAddress("Alipay", profileId, nameof(TradeCreateEndpoint));
+        
+        // 安全传递给 ConfigResolver
+        var config = await _configResolver.ResolveAsync("Alipay", profileId, ct);
+        // ...
+    }
+}
 
-// ❌ 禁止：多层索引查询
-var allProfiles = await redis.SetMembersAsync($"nxc:map:{realmId}:{providerName}");
-var profileId = allProfiles.FirstOrDefault();  // ← 违反宪法 003，Realm 决策路由
+// ❌ 禁止：使用身份容器对象
+var identity = new TenantContext(...);  // ← 已删除
+var config = await resolver.ResolveAsync(identity, ct);
+
+// ❌ 禁止：多层索引查询（Realm 不参与寻址）
+var profiles = await redis.SetMembersAsync($"realm:{realmId}:profiles");
+var profileId = profiles.FirstOrDefault();  // ← 违反宪法 003，不再支持
 ```
 
 **验证清单：**
 - [ ] Redis Key 格式严格为 `config:{provider}:{profileId}`
 - [ ] 所有查询都是 O(1) 精确匹配
-- [ ] Realm 仅在审计日志中出现，不在寻址中
-- [ ] 删除所有多层索引（map/group/index 层）
-- [ ] 权限管理由 BFF 负责，Gate 不校验权限
+- [ ] Endpoint 层必须使用 NexusGuard.EnsurePhysicalAddress() 验证参数
+- [ ] 禁止使用 TenantContext 或身份容器
+- [ ] 禁止隐式补全或默认 ProfileId
 
 ---
 
 ### 宪法 004：BFF/Gate 职责拆分（BFF-Gate Separation of Concerns）
 
 **物理原则：**  
-BFF 层负责身份转换（业务用户 → ProfileId），Gate 层仅负责合约执行。分界线明确，数据流单向。
+BFF 层负责业务身份转换（如商户 ID → ProfileId），Gate 层仅负责合约执行。ProfileId 从 URL 路径显式提取，不涉及身份转换。
 
 **具体约束：**
 
 ```csharp
-// ========== BFF 层（身份转换）==========
+// ========== BFF 层（业务身份转换）==========
 public class MerchantBizService
 {
     public async Task<TradePayResponse> PayAsync(
-        Guid merchantId,        // 业务身份
-        PaymentDto dto)         // 业务数据
+        Guid customerId,
+        PaymentDto dto)
     {
-        // BFF 职责 1: 身份转换
-        var profileId = merchantId.ToString("N");
+        // BFF 职责 1: 业务身份转换（如需要）
+        var profileId = customerId.ToString("N");
         
         // BFF 职责 2: 业务数据转换
         var request = new TradePayRequest
         {
             OutTradeNo = dto.OrderId,
             TotalAmount = dto.Amount,
-            Subject = dto.Description,
-            ProfileId = profileId  // ← 显式传递（或通过 URL）
+            Subject = dto.Description
         };
         
-        // BFF 职责 3: 调用 Gate API
-        var gateClient = new HttpClient { BaseAddress = new Uri("https://gate.company.com") };
-        var response = await gateClient.PostAsJsonAsync(
-            $"/merchants/{profileId}/trade/pay",  // ← ProfileId 在 URL
+        // BFF 职责 3: 调用 Gate API（profileId 在 URL 路径）
+        var httpClient = new HttpClient { BaseAddress = new Uri("https://gate.company.com") };
+        var response = await httpClient.PostAsJsonAsync(
+            $"/merchants/{profileId}/trade/pay",  // ← ProfileId 显式在 URL
             request);
         
         return await response.Content.ReadAsAsync<TradePayResponse>();
@@ -194,9 +213,13 @@ public sealed class TradePayEndpoint : NexusEndpoint<TradePayRequest>
 {
     public override async Task HandleAsync(TradePayRequest req, CancellationToken ct)
     {
-        var profileId = Route<string>("merchantId");
+        // Gate 职责：仅提取 ProfileId 并执行合约
+        var profileId = Route<string>("profileId");
         
-        // Gate 职责：仅执行合约
+        // 防御性检查（宪法 012）
+        NexusGuard.EnsurePhysicalAddress("Alipay", profileId, nameof(TradePayEndpoint));
+        
+        // 执行合约，不涉及身份转换
         var response = await _engine.ExecuteAsync(req, "Alipay", profileId, ct);
         
         await SendAsync(response);
@@ -206,18 +229,23 @@ public sealed class TradePayEndpoint : NexusEndpoint<TradePayRequest>
 // ❌ 禁止：Gate 参与身份转换逻辑
 public override async Task HandleAsync(TradePayRequest req, CancellationToken ct)
 {
-    // Gate 不应知道"如何从 merchantId 转化为 AppId"
-    var appId = await _merchantService.GetDefaultAppIdAsync(req.MerchantId);  // ← 违反宪法 004
-    var response = await _engine.ExecuteAsync(req, appId, ct);
+    // Gate 不应进行任何业务逻辑转换
+    var customerInfo = await _customerService.GetCustomerAsync(req.CustomerId);  // ← 违反宪法 004
+    var profileId = customerInfo.ProfileId;
+    // ...
 }
+
+// ❌ 禁止：使用身份容器
+var tenantCtx = TenantContextFactory.Create(HttpContext);  // ← 已删除
+var response = await _engine.ExecuteAsync(req, tenantCtx, ct);
 ```
 
 **验证清单：**
-- [ ] BFF 负责所有身份转换逻辑
-- [ ] Gate 接收已确定的 ProfileId（从 URL 或 Body）
-- [ ] Gate 不进行身份校验或默认补全
+- [ ] BFF 负责所有业务身份转换逻辑
+- [ ] Gate 接收 URL 路径中已确定的 ProfileId
+- [ ] Gate 使用 NexusGuard 验证 ProfileId，不进行业务逻辑判断
 - [ ] 数据流：BFF → HTTP → Gate → Provider
-- [ ] 逆向查询禁止（Gate 不能调 BFF 的身份转换服务）
+- [ ] 禁止逆向查询（Gate 不能调用 BFF 的服务）
 
 ---
 
