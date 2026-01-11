@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using NexusContract.Abstractions.Attributes;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Policies;
 using NexusContract.Abstractions.Security;
 
@@ -36,8 +37,8 @@ namespace NexusContract.Core.Reflection.Compilation
             Type contractType,
             PropertyAuditResult[] auditResults)
         {
-            if (contractType == null) throw new ArgumentNullException(nameof(contractType));
-            if (auditResults == null) throw new ArgumentNullException(nameof(auditResults));
+            NexusGuard.EnsurePhysicalAddress(contractType);
+            NexusGuard.EnsurePhysicalAddress(auditResults);
 
             // 空属性列表，返回空字典生成器
             if (auditResults.Length == 0)

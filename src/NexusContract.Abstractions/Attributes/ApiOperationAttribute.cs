@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
+using NexusContract.Abstractions.Exceptions;
 
 namespace NexusContract.Abstractions.Attributes
 {
@@ -79,11 +80,7 @@ namespace NexusContract.Abstractions.Attributes
             HttpVerb verb = HttpVerb.POST,
             InteractionKind interaction = InteractionKind.RequestResponse)
         {
-            if (string.IsNullOrWhiteSpace(operationId))
-                throw new ArgumentException(
-                    "ApiOperation: OperationId cannot be null or empty.",
-                    nameof(operationId));
-
+            NexusGuard.EnsureNonEmptyString(operationId);
             OperationId = operationId;
             Verb = verb;
             Interaction = interaction;

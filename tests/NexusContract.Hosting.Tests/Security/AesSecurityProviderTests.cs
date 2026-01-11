@@ -3,6 +3,7 @@
 
 using System.Security.Cryptography;
 using NexusContract.Hosting.Security;
+using NexusContract.Abstractions.Exceptions;
 using Xunit;
 
 namespace NexusContract.Hosting.Tests.Security;
@@ -37,14 +38,14 @@ public class AesSecurityProviderTests
     public void Constructor_NullKey_ShouldThrow()
     {
         // Act & Assert
-        Assert.Throws<ArgumentException>(() => new AesSecurityProvider(null!));
+        Assert.Throws<ContractIncompleteException>(() => new AesSecurityProvider(null!));
     }
 
     [Fact]
     public void Constructor_EmptyKey_ShouldThrow()
     {
         // Act & Assert
-        Assert.Throws<ArgumentException>(() => new AesSecurityProvider(string.Empty));
+        Assert.Throws<ContractIncompleteException>(() => new AesSecurityProvider(string.Empty));
     }
 
     [Fact]
@@ -54,7 +55,7 @@ public class AesSecurityProviderTests
         string invalidKey = "not-a-valid-base64!!!";
 
         // Act & Assert
-        Assert.Throws<ArgumentException>(() => new AesSecurityProvider(invalidKey));
+        Assert.Throws<ContractIncompleteException>(() => new AesSecurityProvider(invalidKey));
     }
 
     [Fact]
@@ -64,7 +65,7 @@ public class AesSecurityProviderTests
         string shortKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
 
         // Act & Assert
-        Assert.Throws<ArgumentException>(() => new AesSecurityProvider(shortKey));
+        Assert.Throws<ContractIncompleteException>(() => new AesSecurityProvider(shortKey));
     }
 
     [Fact]

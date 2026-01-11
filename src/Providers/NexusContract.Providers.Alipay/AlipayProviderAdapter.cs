@@ -44,7 +44,7 @@ namespace NexusContract.Providers.Alipay
     ///     ↓
     /// AlipayProviderAdapter (捕获并转换)
     ///     ↓
-    /// NexusEngine (NexusTenantException)
+    /// NexusEngine (ContractIncompleteException)
     ///     ↓
     /// FastEndpoints (HTTP 错误码)
     /// ```
@@ -75,15 +75,25 @@ namespace NexusContract.Providers.Alipay
     /// <param name="transport">Nexus 传输层（推荐，生产级）</param>
     /// <param name="gateway">Nexus 网关（投影/回填引擎）</param>
     /// <param name="namingPolicy">命名策略（默认 SnakeCase）</param>
-    public sealed class AlipayProviderAdapter(
-        INexusTransport transport,
-        NexusGateway gateway,
-        INamingPolicy? namingPolicy = null) : IProvider
+    public sealed class AlipayProviderAdapter : IProvider
     {
-        private readonly INexusTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
-        private readonly NexusGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
-        private readonly INamingPolicy _namingPolicy = namingPolicy ?? new SnakeCaseNamingPolicy();
+        private readonly INexusTransport _transport;
+        private readonly NexusGateway _gateway;
+        private readonly INamingPolicy _namingPolicy;
         private readonly ConcurrentDictionary<string, AlipayProviderConfig> _configCache = new ConcurrentDictionary<string, AlipayProviderConfig>(StringComparer.Ordinal);
+
+        public AlipayProviderAdapter(
+            INexusTransport transport,
+            NexusGateway gateway,
+            INamingPolicy? namingPolicy = null)
+        {
+            NexusGuard.EnsurePhysicalAddress(transport);
+            NexusGuard.EnsurePhysicalAddress(gateway);
+            
+            _transport = transport;
+            _gateway = gateway;
+            _namingPolicy = namingPolicy ?? new SnakeCaseNamingPolicy();
+        }
 
         /// <summary>
         /// Provider 标识（用于 Engine 路由）
@@ -97,7 +107,7 @@ namespace NexusContract.Providers.Alipay
         /// 1. 转换配置：IProviderConfiguration → AlipayProviderConfig
         /// 2. 创建 AlipayProvider 实例（传入转换后的配置）
         /// 3. 委托执行：调用 AlipayProvider.ExecuteAsync
-        /// 4. 异常转换：捕获并转换为 NexusTenantException
+        /// 4. 异常转换：捕获并转换为 ContractIncompleteException
         /// </summary>
         /// <typeparam name="TResponse">响应类型</typeparam>
         /// <param name="request">API 请求</param>
@@ -110,10 +120,8 @@ namespace NexusContract.Providers.Alipay
             CancellationToken ct = default)
             where TResponse : class, new()
         {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request));
-            if (configuration == null)
-                throw new ArgumentNullException(nameof(configuration));
+            NexusGuard.EnsurePhysicalAddress(request);
+            NexusGuard.EnsurePhysicalAddress(configuration);
 
             try
             {
@@ -130,21 +138,24 @@ namespace NexusContract.Providers.Alipay
             catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
             {
                 // 超时异常（非用户取消）
-                throw new NexusTenantException(
-                    $"Request timeout for tenant {configuration.MerchantId}. " +
-                    $"The upstream service did not respond within the configured timeout.",
+                throw new ContractIncompleteException(
+                    nameof(AlipayProviderAdapter),
+                    ContractDiagnosticRegistry.NXC201,
+                    $"Request timeout for profile. The upstream service did not respond within the configured timeout.",
                     ex);
             }
-            catch (NexusTenantException)
+            catch (ContractIncompleteException)
             {
-                // 租户异常：直接抛出（不重复包装）
+                // 配置不完整不是需要处理的似针异常，非皴接抛出
                 throw;
             }
             catch (Exception ex)
             {
-                // 未知异常：包装为租户异常（包含熔断器、网络异常等）
-                throw new NexusTenantException(
-                    $"Failed to execute Alipay request for tenant {configuration.MerchantId}: {ex.Message}",
+                // 未知异常：包装为配置不完整异常（包含燒断器、网络异常等）
+                throw new ContractIncompleteException(
+                    nameof(AlipayProviderAdapter),
+                    ContractDiagnosticRegistry.NXC201,
+                    $"Failed to execute Alipay request: {ex.Message}",
                     ex);
             }
         }
@@ -201,16 +212,11 @@ namespace NexusContract.Providers.Alipay
         private AlipayProviderConfig ConvertConfig(IProviderConfiguration configuration)
         {
             // 验证必需字段
-            if (string.IsNullOrWhiteSpace(configuration.AppId))
-                throw new ArgumentException("AppId is required");
-            if (string.IsNullOrWhiteSpace(configuration.MerchantId))
-                throw new ArgumentException("MerchantId is required");
-            if (string.IsNullOrWhiteSpace(configuration.PrivateKey))
-                throw new ArgumentException("PrivateKey is required");
-            if (string.IsNullOrWhiteSpace(configuration.PublicKey))
-                throw new ArgumentException("PublicKey is required");
-            if (configuration.GatewayUrl == null)
-                throw new ArgumentException("GatewayUrl is required");
+            NexusGuard.EnsureNonEmptyString(configuration.AppId);
+            NexusGuard.EnsureNonEmptyString(configuration.MerchantId);
+            NexusGuard.EnsureNonEmptyString(configuration.PrivateKey);
+            NexusGuard.EnsureNonEmptyString(configuration.PublicKey);
+            NexusGuard.EnsurePhysicalAddress(configuration.GatewayUrl);
 
             // 解析扩展设置
             bool useSandbox = configuration.GetExtendedSetting<bool>("UseSandbox");

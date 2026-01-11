@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
+using NexusContract.Abstractions.Exceptions;
 
 namespace NexusContract.Abstractions.Attributes
 {
@@ -61,9 +62,7 @@ namespace NexusContract.Abstractions.Attributes
         /// <param name="name">协议中的字段名</param>
         public ApiFieldAttribute(string name)
         {
-            if (string.IsNullOrWhiteSpace(name))
-                throw new ArgumentException("ApiField Name cannot be null or whitespace when explicitly specified.", nameof(name));
-
+            NexusGuard.EnsureNonEmptyString(name);
             Name = name;
         }
 

@@ -26,10 +26,17 @@ namespace NexusContract.Core.Projection
     /// 深度限制 3 的理由：Alipay/WeChat/UnionPay 标准接口最深 3 层。
     /// 超过 3 层通常表示架构设计问题，防止 AI 自主设计过深结构。
     /// </summary>
-    public sealed class ProjectionEngine(INamingPolicy namingPolicy, IEncryptor? encryptor = null)
+    public sealed class ProjectionEngine
     {
-        private readonly INamingPolicy _namingPolicy = namingPolicy ?? throw new ArgumentNullException(nameof(namingPolicy));
-        private readonly IEncryptor? _encryptor = encryptor;
+        private readonly INamingPolicy _namingPolicy;
+        private readonly IEncryptor? _encryptor;
+
+        public ProjectionEngine(INamingPolicy namingPolicy, IEncryptor? encryptor = null)
+        {
+            NexusGuard.EnsurePhysicalAddress(namingPolicy);
+            _namingPolicy = namingPolicy;
+            _encryptor = encryptor;
+        }
 
         // 从全局边界配置引用（单一来源）
         private static readonly int MaxRecursionDepth = ContractBoundaries.MaxNestingDepth;
@@ -41,8 +48,7 @@ namespace NexusContract.Core.Projection
         /// </summary>
         public IDictionary<string, object> Project<TResponse>(object contract)
         {
-            if (contract == null)
-                throw new ArgumentNullException(nameof(contract));
+            NexusGuard.EnsurePhysicalAddress(contract);
 
             var contractType = contract.GetType();
             var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(contractType);

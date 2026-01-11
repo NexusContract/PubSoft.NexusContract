@@ -32,7 +32,7 @@ public class NexusEngineTests
     public void Constructor_NullConfigResolver_ShouldThrow()
     {
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new NexusEngine(null!));
+        Assert.Throws<ContractIncompleteException>(() => new NexusEngine(null!));
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class NexusEngineTests
         var mockProvider = new Mock<IProvider>();
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => 
+        Assert.Throws<ContractIncompleteException>(() => 
             engine.RegisterProvider(null!, mockProvider.Object));
     }
 
@@ -72,7 +72,7 @@ public class NexusEngineTests
         var engine = new NexusEngine(mockResolver.Object);
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => 
+        Assert.Throws<ContractIncompleteException>(() => 
             engine.RegisterProvider("TestProvider", null!));
     }
 
@@ -131,7 +131,7 @@ public class NexusEngineTests
         var engine = new NexusEngine(mockResolver.Object);
 
         // Act & Assert
-        await Assert.ThrowsAsync<ArgumentNullException>(() => 
+        await Assert.ThrowsAsync<ContractIncompleteException>(() => 
             engine.ExecuteAsync<TestResponse>(null!, "Alipay", "app123"));
     }
 
@@ -144,7 +144,7 @@ public class NexusEngineTests
         var mockRequest = new Mock<IApiRequest<TestResponse>>();
 
         // Act & Assert
-        await Assert.ThrowsAsync<ArgumentNullException>(() => 
+        await Assert.ThrowsAsync<ContractIncompleteException>(() => 
             engine.ExecuteAsync(mockRequest.Object, null!, "app123"));
     }
 
@@ -157,7 +157,7 @@ public class NexusEngineTests
         var mockRequest = new Mock<IApiRequest<TestResponse>>();
 
         // Act & Assert
-        await Assert.ThrowsAsync<ArgumentNullException>(() => 
+        await Assert.ThrowsAsync<ContractIncompleteException>(() => 
             engine.ExecuteAsync(mockRequest.Object, "Alipay", null!));
     }
 
@@ -177,9 +177,8 @@ public class NexusEngineTests
         var mockRequest = new Mock<IApiRequest<TestResponse>>();
 
         // Act & Assert
-        var ex = await Assert.ThrowsAsync<NexusTenantException>(() => 
+        var ex = await Assert.ThrowsAsync<ContractIncompleteException>(() => 
             engine.ExecuteAsync(mockRequest.Object, "Alipay", "app123"));
         Assert.Contains("not registered", ex.Message);
-        Assert.IsType<InvalidOperationException>(ex.InnerException);
     }
 }

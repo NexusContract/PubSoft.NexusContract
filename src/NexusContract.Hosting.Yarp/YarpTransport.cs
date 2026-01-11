@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Transport;
 using Polly;
 using Polly.CircuitBreaker;
@@ -60,9 +61,13 @@ namespace NexusContract.Hosting.Yarp
             IOptions<YarpTransportOptions> options,
             ILogger<YarpTransport> logger)
         {
-            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            NexusGuard.EnsurePhysicalAddress(httpClient);
+            NexusGuard.EnsurePhysicalAddress(options);
+            NexusGuard.EnsurePhysicalAddress(logger);
+            
+            _httpClient = httpClient;
+            _options = options.Value;
+            _logger = logger;
             _hostMetrics = new ConcurrentDictionary<string, long>();
 
             // 配置 HTTP/2 连接池
@@ -79,8 +84,7 @@ namespace NexusContract.Hosting.Yarp
             HttpRequestMessage request,
             CancellationToken cancellationToken = default)
         {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request));
+            NexusGuard.EnsurePhysicalAddress(request);
 
             string host = request.RequestUri?.Host ?? "unknown";
 
@@ -314,7 +318,7 @@ namespace NexusContract.Hosting.Yarp
         public async Task WarmupAsync(IEnumerable<string> hosts, CancellationToken cancellationToken = default)
         {
             if (hosts == null)
-                throw new ArgumentNullException(nameof(hosts));
+                NexusGuard.EnsurePhysicalAddress(hosts);
 
             List<Task> warmupTasks = new List<Task>();
 

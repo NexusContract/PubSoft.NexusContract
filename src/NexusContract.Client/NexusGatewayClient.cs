@@ -9,6 +9,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Attributes;
 using NexusContract.Abstractions.Contracts;
 using NexusContract.Abstractions.Exceptions;
@@ -37,8 +38,10 @@ namespace NexusContract.Client
         HttpClient httpClient,
         Uri? baseUri = null)
     {
-        private readonly Uri _baseUri = baseUri ?? httpClient.BaseAddress ?? throw new InvalidOperationException(
-            "HttpClient must have BaseAddress or baseUri parameter");
+        // baseUri 优先级：explicit baseUri > httpClient.BaseAddress
+        private readonly Uri _baseUri = baseUri ?? httpClient.BaseAddress ?? throw new ContractIncompleteException(
+            "HttpClient must have BaseAddress or baseUri parameter",
+            "NXC201");
 
         /// <summary>
         /// 发送请求（自动类型推断）
@@ -54,7 +57,7 @@ namespace NexusContract.Client
             where TResponse : class, new()
         {
             if (request == null)
-                throw new ArgumentNullException(nameof(request));
+                NexusGuard.EnsurePhysicalAddress(request);
 
             try
             {
@@ -62,7 +65,9 @@ namespace NexusContract.Client
                 var requestType = request.GetType();
                 var metadata = NexusContractMetadataRegistry.Instance.GetMetadata(requestType);
                 var operation = metadata.Operation
-                    ?? throw new InvalidOperationException($"[{requestType.Name}] missing [ApiOperation] attribute");
+                    ?? throw new ContractIncompleteException(
+                        $"[{requestType.Name}] missing [ApiOperation] attribute",
+                        "NXC102");
 
                 // 2. 构建请求 URL（零拷贝倾向）
                 var requestUri = new Uri(_baseUri, operation.OperationId);

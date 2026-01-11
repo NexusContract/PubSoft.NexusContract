@@ -20,7 +20,7 @@ namespace NexusContract.Abstractions.Configuration
     /// - ProfileId 必须显式传入，禁止自动回填或默认值
     /// - Redis Key 格式严格为 `config:{provider}:{profileId}`
     /// - 所有查询都是 O(1) 精确匹配，无模糊搜索
-    /// - Realm 信息仅保留在审计日志中，不参与寻址
+    /// - 业务身份信息仅保留在审计日志中，不参与寻址
     /// 
     /// 典型实现：
     /// 1. **InMemoryConfigResolver**：纯内存实现（用于测试）
@@ -33,7 +33,7 @@ namespace NexusContract.Abstractions.Configuration
     /// - 配置更新时通过 Pub/Sub 主动刷新
     /// 
     /// 性能特征：
-    /// - 查询延迟：L1 命中 <1μs，L2 命中 ~1ms，冷启动 ~5ms
+    /// - 查询延迟：L1 命中 &lt;1μs，L2 命中 ~1ms，冷启动 ~5ms
     /// - 吞吐量：QPS 百万级（受限于 CPU，而非缓存）
     /// - 脱网运行：Redis 故障时可运行 30 天（L1 缓存）
     /// 
@@ -54,7 +54,7 @@ namespace NexusContract.Abstractions.Configuration
         /// 工作流：
         /// 1. 查询 L1 内存缓存（Redis Key: `config:{provider}:{profileId}`）→ 命中则返回
         /// 2. 查询 L2 Redis 缓存 → 命中则回填 L1 并返回
-        /// 3. 未找到配置 → 抛出 NexusTenantException.NotFound（NXC201）
+        /// 3. 未找到配置 → 抛出 ContractIncompleteException（NXC201）
         /// 
         /// 必需约束：
         /// - `profileId` 必须非空且明确（禁止 null/empty）
@@ -62,14 +62,14 @@ namespace NexusContract.Abstractions.Configuration
         /// - Redis Key 格式必须严格为 `config:{provider}:{profileId}`
         /// 
         /// 异常处理：
-        /// - 配置未找到：抛出 NexusTenantException.NotFound（HTTP 404，NXC201）
+        /// - 配置未找到：抛出 ContractIncompleteException（HTTP 404，NXC201）
         /// - 参数无效：抛出 ArgumentException（HTTP 400，NXC201）
         /// </summary>
         /// <param name="providerName">Provider 标识（例如 "Alipay", "WeChat"）</param>
         /// <param name="profileId">档案标识（显式必填，禁止 null/empty）</param>
         /// <param name="ct">取消令牌</param>
         /// <returns>Provider 物理配置（含私钥）</returns>
-        /// <exception cref="NexusTenantException">配置未找到（NXC201）或参数无效</exception>
+        /// <exception cref="ContractIncompleteException">配置未找到（NXC201）或参数无效</exception>
         Task<IProviderConfiguration> ResolveAsync(
             string providerName,
             string profileId,

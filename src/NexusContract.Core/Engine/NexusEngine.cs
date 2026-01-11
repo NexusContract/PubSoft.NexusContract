@@ -20,7 +20,7 @@ namespace NexusContract.Core.Engine
     /// 1. JIT 配置加载：通过 IConfigurationResolver 动态加载租户配置
     /// 2. Provider 路由：根据配置中的实现标签选择 Provider
     /// 3. 请求执行：调用 Provider.ExecuteAsync 执行业务逻辑
-    /// 4. 异常处理：统一异常转换（NexusTenantException, NexusGatewayException）
+    /// 4. 异常处理：统一异常转换（ContractIncompleteException, NexusGatewayException）
     /// 
     /// 路由策略（配置驱动，优先级从高到低）：
     /// 1. 配置实现标签：settings.ExtendedSettings["ImplementationName"]（如 "Alipay.Cert" / "Alipay.RSA"）
@@ -59,10 +59,16 @@ namespace NexusContract.Core.Engine
     /// 构造 NexusEngine
     /// </remarks>
     /// <param name="configResolver">配置解析器</param>
-    public sealed class NexusEngine(IConfigurationResolver configResolver) : INexusEngine
+    public sealed class NexusEngine : INexusEngine
     {
-        private readonly IConfigurationResolver _configResolver = configResolver ?? throw new ArgumentNullException(nameof(configResolver));
+        private readonly IConfigurationResolver _configResolver;
         private readonly ConcurrentDictionary<string, IProvider> _providerRegistry = new ConcurrentDictionary<string, IProvider>(StringComparer.OrdinalIgnoreCase);
+
+        public NexusEngine(IConfigurationResolver configResolver)
+        {
+            NexusGuard.EnsurePhysicalAddress(configResolver);
+            _configResolver = configResolver;
+        }
 
         /// <summary>
         /// 注册 Provider
@@ -71,10 +77,8 @@ namespace NexusContract.Core.Engine
         /// <param name="provider">Provider 实例</param>
         public void RegisterProvider(string providerName, IProvider provider)
         {
-            if (string.IsNullOrWhiteSpace(providerName))
-                throw new ArgumentNullException(nameof(providerName));
-            if (provider == null)
-                throw new ArgumentNullException(nameof(provider));
+            NexusGuard.EnsureNonEmptyString(providerName);
+            NexusGuard.EnsurePhysicalAddress(provider);
 
             _providerRegistry[providerName] = provider;
         }
@@ -108,11 +112,9 @@ namespace NexusContract.Core.Engine
             CancellationToken ct = default)
             where TResponse : class, new()
         {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request));
-            
-            // 防御性校验：确保物理地址完整（宪法 002/003）
-            NexusGuard.EnsurePhysicalAddress(providerName, profileId, nameof(NexusEngine));
+            NexusGuard.EnsurePhysicalAddress(request);
+            NexusGuard.EnsureNonEmptyString(providerName);
+            NexusGuard.EnsureNonEmptyString(profileId);
 
             try
             {
@@ -132,8 +134,10 @@ namespace NexusContract.Core.Engine
             }
             catch (Exception ex) when (!(ex is ArgumentNullException))
             {
-                // 未知异常：包装为 NexusTenantException
-                throw new NexusTenantException(
+                // 未知异常：包装为 ContractIncompleteException
+                throw new ContractIncompleteException(
+                    nameof(NexusEngine),
+                    ContractDiagnosticRegistry.NXC201,
                     $"Request execution failed for profileId '{profileId}' on provider '{providerName}': {ex.Message}",
                     ex);
             }
@@ -178,8 +182,9 @@ namespace NexusContract.Core.Engine
                 return providerName;
             }
 
-            // 所有策略失败：抛出异常
-            throw new ArgumentException($"Cannot resolve ImplementationName from configuration or providerName '{providerName}'");
+            // 所有策略失败：视为缺失实现名（物理寻址缺失），由 NexusGuard 抛出 NXC
+            NexusGuard.EnsureNonEmptyString(providerName);
+            throw new InvalidOperationException("Cannot resolve ImplementationName from configuration or providerName");
         }
 
         /// <summary>

@@ -8,9 +8,9 @@
     <!-- 📦 NuGet 包元数据 -->
     <PackageId>NexusContract.Hosting</PackageId>
     <Title>NexusContract Hosting - ASP.NET Core Integration Layer</Title>
-    <Description>[EN] Glue layer for NexusContract framework integration with ASP.NET Core and FastEndpoints. Includes TenantContextFactory (HTTP context extraction), NexusEndpointBase (zero-code endpoint base class), and protocol adapters. Targets .NET 10. | [CN] NexusContract 框架与 ASP.NET Core、FastEndpoints 集成的胶水层。包含 TenantContextFactory（HTTP 上下文提取）、NexusEndpointBase（零代码 Endpoint 基类）及协议适配器。目标 .NET 10。</Description>
-    <PackageTags>$(PackageTags);hosting;aspnetcore;fastendpoints;glue-layer;tenant-extraction;zero-code;net10</PackageTags>
-    <PackageReleaseNotes>Initial preview with TenantContextFactory and NexusEndpointBase for zero-code ISV multi-tenant endpoints.</PackageReleaseNotes>
+    <Description>[EN] Hosting integration layer for NexusContract with ASP.NET Core and FastEndpoints. Provides NexusEndpoint base class for explicit profileId routing with NexusGuard validation. Targets .NET 10. | [CN] NexusContract 的 Hosting 集成层，提供 NexusEndpoint 基类用于显式 profileId 路由。目标 .NET 10。</Description>
+    <PackageTags>$(PackageTags);hosting;aspnetcore;fastendpoints;explicit-routing;profileid;gateway;net10</PackageTags>
+    <PackageReleaseNotes>v1.0: Removed implicit multi-tenant containers. Enforce explicit providerName/profileId routing with NexusGuard zero-allocation validation. Breaking change from v0.x.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>

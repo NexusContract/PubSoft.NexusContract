@@ -84,7 +84,7 @@ namespace NexusContract.Core.Configuration
         public InMemoryConfigResolver(string configFilePath, bool enableHotReload = true)
         {
             if (string.IsNullOrWhiteSpace(configFilePath))
-                throw new ArgumentNullException(nameof(configFilePath));
+                NexusGuard.EnsureNonEmptyString(configFilePath);
 
             if (!File.Exists(configFilePath))
                 throw new FileNotFoundException($"Configuration file not found: {configFilePath}");
@@ -133,8 +133,10 @@ namespace NexusContract.Core.Configuration
             }
 
             // 配置未找到
-            throw NexusTenantException.NotFound(
-                $"{providerName}:{profileId}");
+            throw new ContractIncompleteException(
+                nameof(InMemoryConfigResolver),
+                ContractDiagnosticRegistry.NXC201,
+                $"Configuration not found: {providerName}/{profileId}");
         }
 
         /// <summary>
@@ -170,7 +172,7 @@ namespace NexusContract.Core.Configuration
         public void AddOrUpdate(ProviderSettings settings)
         {
             if (settings == null)
-                throw new ArgumentNullException(nameof(settings));
+                NexusGuard.EnsurePhysicalAddress(settings);
 
             string key = BuildCacheKey(settings.ProviderName, settings.AppId);
             _cache[key] = settings;
@@ -250,7 +252,8 @@ namespace NexusContract.Core.Configuration
                         // 验证配置完整性
                         if (!config.Validate(out string? error))
                         {
-                            throw new InvalidOperationException(
+                            throw new NexusContract.Abstractions.Exceptions.ContractIncompleteException(
+                                "InMemoryConfigResolver",
                                 $"Invalid configuration in file: {error}");
                         }
 
@@ -261,7 +264,8 @@ namespace NexusContract.Core.Configuration
             }
             catch (JsonException ex)
             {
-                throw new InvalidOperationException(
+                throw new NexusContract.Abstractions.Exceptions.ContractIncompleteException(
+                    "InMemoryConfigResolver",
                     $"Failed to parse configuration file: {_configFilePath}", ex);
             }
         }

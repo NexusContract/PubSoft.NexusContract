@@ -44,8 +44,8 @@ namespace NexusContract.Core.Reflection
         /// </summary>
         public static void Validate(Type contractType, DiagnosticReport report)
         {
-            if (contractType == null) throw new ArgumentNullException(nameof(contractType));
-            if (report == null) throw new ArgumentNullException(nameof(report));
+            NexusGuard.EnsurePhysicalAddress(contractType);
+            NexusGuard.EnsurePhysicalAddress(report);
 
             string contractName = contractType.Name;
 
@@ -82,8 +82,7 @@ namespace NexusContract.Core.Reflection
         /// </summary>
         public static void ValidateFailFast(Type contractType)
         {
-            if (contractType == null)
-                throw new ArgumentNullException(nameof(contractType));
+            NexusGuard.EnsurePhysicalAddress(contractType);
 
             string contractName = contractType.FullName ?? contractType.Name ?? "Unknown";
 

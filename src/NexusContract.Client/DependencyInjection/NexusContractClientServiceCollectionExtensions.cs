@@ -8,8 +8,7 @@ using System.Collections.Frozen;
 using System.Linq;
 using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Http;
-using NexusContract.Abstractions.Policies;
+using Microsoft.Extensions.Http;using NexusContract.Abstractions.Exceptions;using NexusContract.Abstractions.Policies;
 using NexusContract.Core.Policies.Impl;
 
 namespace NexusContract.Client.DependencyInjection
@@ -52,7 +51,7 @@ namespace NexusContract.Client.DependencyInjection
             INamingPolicy? namingPolicy = null)
         {
             if (services == null)
-                throw new ArgumentNullException(nameof(services));
+                NexusGuard.EnsurePhysicalAddress(services);
 
             var policy = namingPolicy ?? new SnakeCaseNamingPolicy();
 
@@ -75,11 +74,10 @@ namespace NexusContract.Client.DependencyInjection
         /// </summary>
         public NexusContractClientBuilder AddGateway(string providerKey, Uri gatewayUri)
         {
-            if (string.IsNullOrWhiteSpace(providerKey))
-                throw new ArgumentException("Provider key cannot be null or empty", nameof(providerKey));
+            NexusGuard.EnsureNonEmptyString(providerKey);
 
             if (gatewayUri == null)
-                throw new ArgumentNullException(nameof(gatewayUri));
+                NexusGuard.EnsurePhysicalAddress(gatewayUri);
 
             _gateways[providerKey] = gatewayUri;
 
@@ -112,8 +110,7 @@ namespace NexusContract.Client.DependencyInjection
         /// </summary>
         public void RegisterFactory()
         {
-            if (_gateways.Count == 0)
-                throw new InvalidOperationException("At least one gateway must be registered");
+            NexusGuard.EnsureMinCount(_gateways);
 
             var frozenMap = _gateways.ToFrozenDictionary();
 

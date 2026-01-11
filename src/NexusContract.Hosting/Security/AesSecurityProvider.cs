@@ -6,6 +6,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using NexusContract.Abstractions.Security;
+using NexusContract.Abstractions.Exceptions;
 
 namespace NexusContract.Hosting.Security
 {
@@ -44,20 +45,10 @@ namespace NexusContract.Hosting.Security
         /// <exception cref="ArgumentException">主密钥无效</exception>
         public AesSecurityProvider(string masterKeyBase64)
         {
-            if (string.IsNullOrWhiteSpace(masterKeyBase64))
-                throw new ArgumentException("Master key cannot be null or empty", nameof(masterKeyBase64));
-
-            try
-            {
-                _masterKey = Convert.FromBase64String(masterKeyBase64);
-
-                if (_masterKey.Length != 32)
-                    throw new ArgumentException("Master key must be 32 bytes (256 bits)", nameof(masterKeyBase64));
-            }
-            catch (FormatException ex)
-            {
-                throw new ArgumentException("Master key must be a valid Base64 string", nameof(masterKeyBase64), ex);
-            }
+            // Validate base64 and length using NexusGuard (NXC codes)
+            NexusGuard.EnsureValidBase64(masterKeyBase64);
+            _masterKey = Convert.FromBase64String(masterKeyBase64!);
+            NexusGuard.EnsureByteLength(_masterKey, 32);
         }
 
         /// <summary>

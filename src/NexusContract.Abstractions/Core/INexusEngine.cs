@@ -9,7 +9,7 @@ using NexusContract.Abstractions.Exceptions;
 namespace NexusContract.Abstractions.Core
 {
     /// <summary>
-    /// Nexus 引擎接口：多租户 ISV 网关的调度大脑
+    /// Nexus 引擎接口：物理寻址网关的调度大脑（v1.0 宪法版本）
     /// 
     /// 职责：
     /// - 根据请求类型（OperationId）和显式 ProfileId 路由到对应 Provider
@@ -17,27 +17,24 @@ namespace NexusContract.Abstractions.Core
     /// - 提供诊断日志和 NXC 错误码
     /// - Provider 无状态单例模式（配置通过参数注入）
     /// 
-    /// 宪法约束（月月红 004）：
-    /// - BFF 负责身份转换（业务用户 → ProfileId）
-    /// - Gate（此引擎）仅负责合约执行
-    /// - ProfileId 必须显式传入（禁止隐式解析）
+    /// 宪法约束：
+    /// - 宪法 002（URL 资源寻址）：ProviderName 来自 URL 路径
+    /// - 宪法 003（物理槽位隔离）：ProfileId 来自 URL 参数（绝对权威）
+    /// - 宪法 007（性能优先）：消除抽象包装，直接使用字符串参数
     /// 
     /// 工作流：
     /// <code>
-    /// // BFF：转换业务身份为 ProfileId
-    /// var profileId = merchantId.ToString("N");
-    /// 
-    /// // Gate（Engine）：执行合约
+    /// // 物理寻址：直接使用 URL 参数
     /// var response = await _engine.ExecuteAsync(
     ///     request,          // IApiRequest&lt;TResponse&gt;
-    ///     "Alipay",         // providerName（显式）
-    ///     profileId,        // ProfileId（从 URL/BFF 明确传入）
+    ///     providerName,     // 从 URL 路径提取
+    ///     profileId,        // 从 URL 参数提取
     ///     ct
     /// );
     /// </code>
     /// 
     /// Provider 路由策略：
-    /// 1. **显式 ProviderName**：调用端指定
+    /// 1. **显式 ProviderName**：URL 路径指定
     /// 2. **OperationId 前缀**：如 "alipay.trade.create" 推断 "Alipay"（备选）
     /// 3. **元数据标注**：Contract 上的 [NexusContract(...)]
     /// 
@@ -48,7 +45,7 @@ namespace NexusContract.Abstractions.Core
     /// 
     /// 错误码：
     /// - NXC101：Request 验证失败
-    /// - NXC201：ProfileId 缺失或无效
+    /// - NXC201：物理寻址参数缺失（ContractIncompleteException）
     /// - NXC301：Transport 错误
     /// - NXC401：Response 反序列化失败
     /// </summary>
@@ -64,20 +61,21 @@ namespace NexusContract.Abstractions.Core
         /// 
         /// 示例：
         /// <code>
-        /// // 从 URL 路由显式提取 profileId
-        /// var profileId = route["merchantId"];
+        /// // 从 URL 路由显式提取物理参数
+        /// var providerName = route["provider"];  // e.g., "Alipay"
+        /// var profileId = route["profile"];      // e.g., "app_123"
         /// 
         /// // 显式传递给 Engine
         /// var response = await _engine.ExecuteAsync(
         ///     new TradeCreateRequest { /* ... */ },
-        ///     "Alipay",     // providerName
-        ///     profileId,    // 显式 ProfileId（不允许 null）
+        ///     providerName,  // 物理 ProviderName
+        ///     profileId,     // 物理 ProfileId
         ///     ct
         /// );
         /// </code>
         /// 
         /// 执行步骤：
-        /// 1. 验证 request、providerName、profileId 非空（否则抛 NXC201）
+        /// 1. 验证 request、providerName、profileId 非空（否则抛 ContractIncompleteException NXC201）
         /// 2. 验证 profileId 格式合法
         /// 3. JIT 加载配置（通过 IConfigurationResolver）
         /// 4. 路由到对应 Provider（通过 providerName）
@@ -85,9 +83,9 @@ namespace NexusContract.Abstractions.Core
         /// 6. 返回强类型响应
         /// 
         /// 异常处理：
-        /// - 缺失 profileId：抛 NexusTenantException（NXC201）
+        /// - 缺失物理参数：抛 ContractIncompleteException（NXC201）
         /// - Provider 未找到：抛 InvalidOperationException（NXC99x）
-        /// - 配置加载失败：抛 NexusTenantException（NXC201）
+        /// - 配置加载失败：抛 ContractIncompleteException（NXC201）
         /// </summary>
         /// <typeparam name="TResponse">响应类型（自动推断）</typeparam>
         /// <param name="request">API 请求对象（实现 IApiRequest&lt;TResponse&gt;）</param>
@@ -98,7 +96,7 @@ namespace NexusContract.Abstractions.Core
         /// <exception cref="System.ArgumentNullException">request、providerName 或 profileId 为空</exception>
         /// <exception cref="System.ArgumentException">profileId 格式无效</exception>
         /// <exception cref="System.InvalidOperationException">Provider 未注册</exception>
-        /// <exception cref="NexusTenantException">配置加载失败（NXC201）或其他租户错误</exception>
+        /// <exception cref="ContractIncompleteException">配置加载失败（NXC201）或其他配置错误</exception>
         Task<TResponse> ExecuteAsync<TResponse>(
             IApiRequest<TResponse> request,
             string providerName,

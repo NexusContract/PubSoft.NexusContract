@@ -3,6 +3,7 @@
 
 using System;
 using Microsoft.Extensions.DependencyInjection;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Policies;
 using NexusContract.Core;
 using NexusContract.Core.Policies.Impl;
@@ -21,8 +22,7 @@ namespace NexusContract.Providers.Alipay.ServiceConfiguration
             this IServiceCollection services,
             AlipayProviderConfig config)
         {
-            if (config == null)
-                throw new ArgumentNullException(nameof(config));
+            NexusGuard.EnsurePhysicalAddress(config);
 
             // 注册配置
             services.AddSingleton(config);

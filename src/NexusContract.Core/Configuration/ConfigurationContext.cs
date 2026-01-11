@@ -3,49 +3,43 @@
 
 using System;
 using System.Collections.Generic;
+using NexusContract.Abstractions.Exceptions;
 
 namespace NexusContract.Core.Configuration
 {
     /// <summary>
-    /// 配置上下文：将业务身份映射为物理配置的查询凭证（宪法版本）
-    /// 
+    /// 配置上下文：物理配置查询的数据载体（v1.0 宪法版本）
+    ///
     /// 职责：
-    /// - 封装配置查询的业务标识（ProviderName + RealmId + ProfileId）
+    /// - 封装配置查询的物理标识（ProviderName + ProfileId）
     /// - 支持扩展元数据（用于配置分片、多环境等场景）
-    /// 
+    ///
     /// 设计约束（宪法）：
-    /// - 宪法 004（职责分离）：本类不再实现身份接口，仅作为配置查询的数据载体
+    /// - 宪法 002（URL 资源寻址）：ProviderName 来自 URL 路径
+    /// - 宪法 003（物理槽位隔离）：ProfileId 来自 URL 参数（绝对权威）
     /// - 宪法 007（性能优先）：消除抽象包装，直接使用字符串参数
     /// - .NET Standard 2.0 兼容（不使用 required、init 等 C# 9+ 特性）
     /// - 强制构造函数校验（防止无效查询）
-    /// 
-    /// 术语映射（Realm 概念）：
+    ///
+    /// 术语映射（物理寻址）：
     /// - **ProviderName**: 渠道标识 (e.g., "Alipay", "WeChat")
     ///   * 用于 Redis 键路由和协议选择
     ///   * 必填字段（Redis-First 架构要求）
-    /// 
-    /// - **RealmId**: 域/归属权（Realm = 逻辑隔离的业务空间）
-    ///   * Alipay: sys_id (ISV 服务商系统ID)
-    ///   * WeChat: sp_mchid (服务商商户号)
-    ///   * 业务含义：标识一个独立的逻辑领域（服务商、机构、代理商）
-    ///   * 防越权隔离：不同 Realm 之间的配置完全隔离
-    /// 
-    /// - **ProfileId**: 档案/执行单元（Profile = 业务实例）
-    ///   * Alipay: app_id (ISV 应用ID)
+    ///
+    /// - **ProfileId**: 档案/执行单元（Profile = 物理配置实例）
+    ///   * Alipay: app_id (应用ID)
     ///   * WeChat: sub_mchid (特约商户号)
-    ///   * 业务含义：Realm 下的具体业务实例（子商户、设备、应用）
-    ///   * 可选字段：某些场景可通过默认规则自动补全
-    /// 
+    ///   * 业务含义：具体的配置实例标识
+    ///   * 必填字段：v1.0 要求显式指定
+    ///
     /// 使用场景：
     /// <code>
-    /// // 在 Provider 中构造配置上下文（旧方式，已弃用）
-    /// var configCtx = new ConfigurationContext("Alipay", realmId)
-    /// {
-    ///     ProfileId = profileId
-    /// };
-    /// 
-    /// // 新方式：直接使用字符串参数
+    /// // v1.0 方式：直接使用字符串参数
     /// var settings = await _configResolver.ResolveAsync(providerName, profileId, ct);
+    ///
+    /// // 可选：构造上下文用于扩展元数据
+    /// var context = new ConfigurationContext(providerName, profileId)
+    ///     .WithMetadata("environment", "production");
     /// </code>
     /// </summary>
     public sealed class ConfigurationContext
@@ -58,23 +52,13 @@ namespace NexusContract.Core.Configuration
         public string ProviderName { get; }
 
         /// <summary>
-        /// 域/归属权（Realm ID）
-        /// - Alipay: sys_id (ISV 服务商系统ID)
-        /// - WeChat: sp_mchid (服务商商户号)
-        /// 
-        /// 必需字段，用于多租户配置隔离和防越权校验
-        /// </summary>
-        public string RealmId { get; }
-
-        /// <summary>
         /// 档案/执行单元（Profile ID）
-        /// - Alipay: app_id (ISV 应用ID)
+        /// - Alipay: app_id (应用ID)
         /// - WeChat: sub_mchid (特约商户号)
-        /// 
-        /// 可选字段，某些场景下可能由 RealmId 推导
-        /// 如果为 null，HybridConfigResolver 会尝试自动解析默认 Profile
+        ///
+        /// 必填字段，v1.0 要求显式指定（宪法 003）
         /// </summary>
-        public string ProfileId { get; set; }
+        public string ProfileId { get; }
 
         /// <summary>
         /// 扩展元数据（用于配置分片、多环境等）
@@ -83,26 +67,28 @@ namespace NexusContract.Core.Configuration
         /// - Region: "cn" / "us" / "eu"
         /// - BusinessLine: "b2c" / "b2b"
         /// </summary>
-        public IDictionary<string, object> Metadata { get; set; }
+        // 默认不分配内存，只有用到时才创建
+        private IDictionary<string, object>? _metadata;
+        public IDictionary<string, object> Metadata 
+        { 
+            get => _metadata ??= new Dictionary<string, object>();
+            set => _metadata = value;
+        }
 
         /// <summary>
         /// 构造配置上下文（必需参数）
         /// </summary>
         /// <param name="providerName">渠道标识（必需）</param>
-        /// <param name="realmId">域/归属权（必需）</param>
-        /// <exception cref="ArgumentNullException">必需参数为空</exception>
-        public ConfigurationContext(string providerName, string realmId)
+        /// <param name="profileId">档案标识（必需）</param>
+        /// <exception cref="ContractIncompleteException">NXC201 - 物理寻址参数缺失</exception>
+        public ConfigurationContext(string providerName, string profileId)
         {
-            if (string.IsNullOrWhiteSpace(providerName))
-                throw new ArgumentNullException(nameof(providerName), "ProviderName cannot be null or empty");
-
-            if (string.IsNullOrWhiteSpace(realmId))
-                throw new ArgumentNullException(nameof(realmId), "RealmId cannot be null or empty");
+            // 宪法 012（诊断主权）：统一出口，统一抛出 NXC201
+            // 宪法 007（性能主权）：不在热路径上重复造轮子
+            NexusGuard.EnsurePhysicalAddress(providerName, profileId, nameof(ConfigurationContext));
 
             ProviderName = providerName;
-            RealmId = realmId;
-            ProfileId = string.Empty;
-            Metadata = new Dictionary<string, object>();
+            ProfileId = profileId;
         }
 
         /// <summary>
@@ -114,7 +100,7 @@ namespace NexusContract.Core.Configuration
         /// <returns>元数据值</returns>
         public T GetMetadata<T>(string key, T defaultValue = default)
         {
-            if (Metadata.TryGetValue(key, out object? value) && value is T typedValue)
+            if (_metadata != null && _metadata.TryGetValue(key, out object? value) && value is T typedValue)
                 return typedValue;
 
             return defaultValue;
@@ -125,7 +111,7 @@ namespace NexusContract.Core.Configuration
         /// </summary>
         public bool HasMetadata(string key)
         {
-            return Metadata.ContainsKey(key);
+            return _metadata != null && _metadata.ContainsKey(key);
         }
 
         /// <summary>
@@ -134,18 +120,9 @@ namespace NexusContract.Core.Configuration
         public ConfigurationContext WithMetadata(string key, object value)
         {
             if (string.IsNullOrWhiteSpace(key))
-                throw new ArgumentNullException(nameof(key));
+                NexusGuard.EnsureNonEmptyString(key);
 
             Metadata[key] = value;
-            return this;
-        }
-
-        /// <summary>
-        /// 设置 ProfileId（流式 API）
-        /// </summary>
-        public ConfigurationContext WithProfileId(string profileId)
-        {
-            ProfileId = profileId;
             return this;
         }
 
@@ -154,12 +131,11 @@ namespace NexusContract.Core.Configuration
         /// </summary>
         public override string ToString()
         {
-            string profile = string.IsNullOrWhiteSpace(ProfileId) ? "N/A" : ProfileId;
-            return $"ConfigurationContext[Provider={ProviderName}, Realm={RealmId}, Profile={profile}]";
+            return $"ConfigurationContext[Provider={ProviderName}, Profile={ProfileId}]";
         }
 
         /// <summary>
-        /// 相等性比较（基于标识三元组）
+        /// 相等性比较（基于标识二元组）
         /// 注意：ProviderName 使用大小写不敏感比较（"Alipay" == "alipay"）
         /// </summary>
         public override bool Equals(object obj)
@@ -167,7 +143,6 @@ namespace NexusContract.Core.Configuration
             if (obj is ConfigurationContext other)
             {
                 return string.Equals(ProviderName, other.ProviderName, StringComparison.OrdinalIgnoreCase)
-                    && RealmId == other.RealmId
                     && ProfileId == other.ProfileId;
             }
             return false;
@@ -185,7 +160,6 @@ namespace NexusContract.Core.Configuration
                 hash = hash * 31 + (ProviderName != null
                     ? StringComparer.OrdinalIgnoreCase.GetHashCode(ProviderName)
                     : 0);
-                hash = hash * 31 + (RealmId?.GetHashCode() ?? 0);
                 hash = hash * 31 + (ProfileId?.GetHashCode() ?? 0);
                 return hash;
             }

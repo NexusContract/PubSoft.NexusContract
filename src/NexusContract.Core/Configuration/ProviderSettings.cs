@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using NexusContract.Abstractions.Configuration;
+using NexusContract.Abstractions.Exceptions;
 
 namespace NexusContract.Core.Configuration
 {
@@ -148,26 +149,12 @@ namespace NexusContract.Core.Configuration
             string publicKey,
             Uri gatewayUrl)
         {
-            if (string.IsNullOrWhiteSpace(providerName))
-                throw new ArgumentNullException(nameof(providerName), "ProviderName cannot be null or empty");
-
-            if (string.IsNullOrWhiteSpace(appId))
-                throw new ArgumentNullException(nameof(appId), "AppId cannot be null or empty");
-
-            if (string.IsNullOrWhiteSpace(merchantId))
-                throw new ArgumentNullException(nameof(merchantId), "MerchantId cannot be null or empty");
-
-            if (string.IsNullOrWhiteSpace(privateKey))
-                throw new ArgumentNullException(nameof(privateKey), "PrivateKey cannot be null or empty for signing");
-
-            if (string.IsNullOrWhiteSpace(publicKey))
-                throw new ArgumentNullException(nameof(publicKey), "PublicKey cannot be null or empty for verification");
-
-            if (gatewayUrl == null)
-                throw new ArgumentNullException(nameof(gatewayUrl), "GatewayUrl cannot be null");
-
-            if (!gatewayUrl.IsAbsoluteUri)
-                throw new ArgumentException("GatewayUrl must be an absolute URI", nameof(gatewayUrl));
+            NexusGuard.EnsureNonEmptyString(providerName);
+            NexusGuard.EnsureNonEmptyString(appId);
+            NexusGuard.EnsureNonEmptyString(merchantId);
+            NexusGuard.EnsureNonEmptyString(privateKey);
+            NexusGuard.EnsureNonEmptyString(publicKey);
+            NexusGuard.EnsureAbsoluteUri(gatewayUrl);
         }
 
         /// <summary>
@@ -199,8 +186,7 @@ namespace NexusContract.Core.Configuration
         /// </summary>
         public ProviderSettings WithExtendedSetting(string key, object value)
         {
-            if (string.IsNullOrWhiteSpace(key))
-                throw new ArgumentNullException(nameof(key));
+            NexusGuard.EnsureNonEmptyString(key);
 
             var newExtendedSettings = new Dictionary<string, object>(ExtendedSettings)
             {

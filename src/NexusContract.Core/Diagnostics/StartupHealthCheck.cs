@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Policies;
 using NexusContract.Abstractions.Security;
 using NexusContract.Core.Exceptions;
@@ -59,8 +60,7 @@ namespace NexusContract.Core.Diagnostics
             IEncryptor? encryptor = null,
             IDecryptor? decryptor = null)
         {
-            if (assemblies == null || assemblies.Length == 0)
-                throw new ArgumentException("Must provide at least one assembly", nameof(assemblies));
+            NexusGuard.EnsureMinCount(assemblies);
 
             // 1. 扫描所有契约类型
             var contractTypes = ScanContractTypes(assemblies);
@@ -80,8 +80,7 @@ namespace NexusContract.Core.Diagnostics
             IEncryptor? encryptor = null,
             IDecryptor? decryptor = null)
         {
-            if (contractTypes == null)
-                throw new ArgumentNullException(nameof(contractTypes));
+            NexusGuard.EnsurePhysicalAddress(contractTypes);
 
             var typeList = contractTypes.ToList();
             if (typeList.Count == 0)
@@ -111,7 +110,7 @@ namespace NexusContract.Core.Diagnostics
                 Console.WriteLine("💡 Tip: Call report.PrintToConsole(includeDetails: true) for full details.");
                 Console.WriteLine();
 
-                throw new ContractIncompleteException(report);
+                throw new Exceptions.ContractIncompleteException(report);
             }
 
             return report;

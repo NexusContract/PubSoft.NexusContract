@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using NexusContract.Abstractions.Contracts;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Policies;
 using NexusContract.Abstractions.Transport;
 using NexusContract.Core;
@@ -95,9 +96,13 @@ namespace NexusContract.Providers.Alipay
             INexusTransport transport,
             INamingPolicy? namingPolicy = null)
         {
-            _config = config ?? throw new ArgumentNullException(nameof(config));
-            _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
-            _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+            NexusGuard.EnsurePhysicalAddress(config);
+            NexusGuard.EnsurePhysicalAddress(gateway);
+            NexusGuard.EnsurePhysicalAddress(transport);
+            
+            _config = config;
+            _gateway = gateway;
+            _transport = transport;
             _namingPolicy = namingPolicy ?? new SnakeCaseNamingPolicy();
 
             ValidateConfiguration();
@@ -116,9 +121,13 @@ namespace NexusContract.Providers.Alipay
             HttpClient httpClient,
             INamingPolicy? namingPolicy = null)
         {
-            _config = config ?? throw new ArgumentNullException(nameof(config));
-            _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
-            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            NexusGuard.EnsurePhysicalAddress(config);
+            NexusGuard.EnsurePhysicalAddress(gateway);
+            NexusGuard.EnsurePhysicalAddress(httpClient);
+            
+            _config = config;
+            _gateway = gateway;
+            _httpClient = httpClient;
             _namingPolicy = namingPolicy ?? new SnakeCaseNamingPolicy();
 
             ValidateConfiguration();
@@ -129,14 +138,10 @@ namespace NexusContract.Providers.Alipay
         /// </summary>
         private void ValidateConfiguration()
         {
-            if (string.IsNullOrWhiteSpace(_config.AppId))
-                throw new InvalidOperationException("AppId is required");
-            if (string.IsNullOrWhiteSpace(_config.MerchantId))
-                throw new InvalidOperationException("MerchantId is required");
-            if (string.IsNullOrWhiteSpace(_config.PrivateKey))
-                throw new InvalidOperationException("PrivateKey is required for request signing");
-            if (string.IsNullOrWhiteSpace(_config.AlipayPublicKey))
-                throw new InvalidOperationException("AlipayPublicKey is required for response verification");
+            NexusGuard.EnsureNonEmptyString(_config.AppId);
+            NexusGuard.EnsureNonEmptyString(_config.MerchantId);
+            NexusGuard.EnsureNonEmptyString(_config.PrivateKey);
+            NexusGuard.EnsureNonEmptyString(_config.AlipayPublicKey);
         }
 
         /// <summary>
@@ -152,8 +157,7 @@ namespace NexusContract.Providers.Alipay
             CancellationToken cancellationToken = default)
             where TResponse : class, new()
         {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request));
+            NexusGuard.EnsurePhysicalAddress(request);
 
             // 定义HTTP执行器：处理实际的网络通信、签名、验证
             async Task<IDictionary<string, object>> HttpExecutor(
@@ -162,7 +166,8 @@ namespace NexusContract.Providers.Alipay
             {
                 // 1. 构建 OpenAPI v3 URL（RESTful 风格）
                 // 例如：https://openapi.alipay.com/v3/alipay/trade/pay
-                string apiPath = context.OperationId ?? throw new InvalidOperationException("OperationId is required");
+                NexusGuard.EnsureNonEmptyString(context.OperationId);
+                string apiPath = context.OperationId!;
                 Uri requestUri = BuildOpenApiV3Uri(apiPath);
 
                 // 2. 准备请求头和认证参数

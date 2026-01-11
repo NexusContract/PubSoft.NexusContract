@@ -58,7 +58,7 @@ namespace NexusContract.Client.Exceptions
             ContractIncompleteException contractEx)
         {
             if (contractEx == null)
-                throw new ArgumentNullException(nameof(contractEx));
+                NexusGuard.EnsurePhysicalAddress(contractEx);
 
             string category = ContractDiagnosticRegistry.GetCategory(contractEx.ErrorCode);
             var diagnosticData = contractEx.GetDiagnosticData();

@@ -4,6 +4,7 @@
 using System;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Security;
 
 namespace NexusContract.Hosting.Security
@@ -35,7 +36,7 @@ namespace NexusContract.Hosting.Security
     /// <param name="securityProvider">安全提供程序（从 DI 容器注入）</param>
     public sealed class ProtectedPrivateKeyConverter(ISecurityProvider securityProvider) : JsonConverter<string>
     {
-        private readonly ISecurityProvider _securityProvider = securityProvider ?? throw new ArgumentNullException(nameof(securityProvider));
+        private readonly ISecurityProvider _securityProvider;
 
         /// <summary>
         /// 反序列化（从 Redis 读取时解密）

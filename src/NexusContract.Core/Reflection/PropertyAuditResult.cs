@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using NexusContract.Abstractions.Exceptions;
 
 namespace NexusContract.Core.Reflection
 {
@@ -10,22 +11,17 @@ namespace NexusContract.Core.Reflection
     /// 运行期直接读布尔值，避免重复的 string.IsNullOrEmpty() 操作。
     /// 性能收益：启动期承担一次性成本，运行期 O(1) 查询，消除反射热点。
     /// </summary>
-    public sealed class PropertyAuditResult(
-        PropertyInfo propertyInfo,
-        Abstractions.Attributes.ApiFieldAttribute apiField,
-        bool isEncryptedWithoutName,
-        bool isComplexWithoutName,
-        bool isComplexType)
+    public sealed class PropertyAuditResult
     {
         /// <summary>
         /// 属性的反射信息
         /// </summary>
-        public PropertyInfo PropertyInfo { get; } = propertyInfo ?? throw new ArgumentNullException(nameof(propertyInfo));
+        public PropertyInfo PropertyInfo { get; }
 
         /// <summary>
         /// ApiField 属性标注
         /// </summary>
-        public Abstractions.Attributes.ApiFieldAttribute ApiField { get; } = apiField ?? throw new ArgumentNullException(nameof(apiField));
+        public Abstractions.Attributes.ApiFieldAttribute ApiField { get; }
 
         /// <summary>
         /// 【规则 R-201】缓存的审计结果：加密字段是否缺少显式名称
@@ -42,7 +38,7 @@ namespace NexusContract.Core.Reflection
         /// if (fieldAttr.IsEncrypted &amp;&amp; string.IsNullOrEmpty(fieldAttr.Name))
         ///     throw ...（这样会导致重复的反射检查）
         /// </summary>
-        public bool IsEncryptedWithoutName { get; } = isEncryptedWithoutName;
+        public bool IsEncryptedWithoutName { get; }
 
         /// <summary>
         /// 【规则 R-207】缓存的审计结果：嵌套深度 > 1 的复杂字段是否缺少显式名称
@@ -53,12 +49,29 @@ namespace NexusContract.Core.Reflection
         /// 
         /// 这是【NXC107】约束的缓存形式
         /// </summary>
-        public bool IsComplexWithoutName { get; } = isComplexWithoutName;
+        public bool IsComplexWithoutName { get; }
 
         /// <summary>
         /// 是否为复杂类型（对象或列表）
         /// </summary>
-        public bool IsComplexType { get; } = isComplexType;
+        public bool IsComplexType { get; }
+
+        public PropertyAuditResult(
+            PropertyInfo propertyInfo,
+            Abstractions.Attributes.ApiFieldAttribute apiField,
+            bool isEncryptedWithoutName,
+            bool isComplexWithoutName,
+            bool isComplexType)
+        {
+            NexusGuard.EnsurePhysicalAddress(propertyInfo);
+            NexusGuard.EnsurePhysicalAddress(apiField);
+            
+            PropertyInfo = propertyInfo;
+            ApiField = apiField;
+            IsEncryptedWithoutName = isEncryptedWithoutName;
+            IsComplexWithoutName = isComplexWithoutName;
+            IsComplexType = isComplexType;
+        }
     }
 }
 

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using NexusContract.Abstractions.Attributes;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Policies;
 using NexusContract.Abstractions.Security;
 
@@ -36,8 +37,8 @@ namespace NexusContract.Core.Reflection.Compilation
             Type contractType,
             PropertyAuditResult[] auditResults)
         {
-            if (contractType == null) throw new ArgumentNullException(nameof(contractType));
-            if (auditResults == null) throw new ArgumentNullException(nameof(auditResults));
+            NexusGuard.EnsurePhysicalAddress(contractType);
+            NexusGuard.EnsurePhysicalAddress(auditResults);
 
             // 仅为简单POCO构建Hydrator（无复杂类型）
             // 复杂场景（嵌套对象、集合）需要fallback到反射路径
@@ -83,7 +84,9 @@ namespace NexusContract.Core.Reflection.Compilation
 
             if (tryGetValueMethod == null)
             {
-                throw new InvalidOperationException($"Cannot find TryGetValue method on IDictionary<string, object>");
+                throw new ContractIncompleteException(
+                    $"Cannot find TryGetValue method on IDictionary<string, object>",
+                    "NXC102");
             }
 
             var convertNameMethod = typeof(INamingPolicy).GetMethod("ConvertName")!;
