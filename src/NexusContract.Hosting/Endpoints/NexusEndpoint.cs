@@ -1,96 +1,99 @@
 // Copyright (c) 2025-2026 NexusContract. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
-using System;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 using FastEndpoints;
 using NexusContract.Abstractions;
 using NexusContract.Abstractions.Contracts;
 using NexusContract.Abstractions.Core;
 using NexusContract.Abstractions.Exceptions;
-using NexusContract.Hosting.Factories;
 
-namespace NexusContract.Hosting.Endpoints
+namespace NexusContract.Hosting.Endpoints;
+
+/// <summary>
+/// 宪法版 NexusEndpoint：强制 URL 寻址，物理抹除所有身份猜测。
+/// 
+/// 职责：
+/// 1. 从 URL 路由提取 provider 和 profileId（宪法 002 - URL 资源寻址）
+/// 2. 自动调用 NexusEngine 调度执行
+/// 3. 如果缺少关键参数，直接抛出 NXC201 诊断异常（宪法 012）
+/// 4. 自动推断响应类型（从 IApiRequest&lt;TResponse&gt;）
+/// 
+/// 设计原则：
+/// - 宪法 002（URL 资源寻址）：profileId 必须从 URL 路由提取，是绝对权威
+/// - 宪法 004（职责分离）：本类只是"参数搬运工"，不参与身份转换
+/// - 宪法 007（性能优先）：消除所有中间 Context 对象，直接传递字符串
+/// - 宪法 012（诊断先行）：参数缺失时抛出 NXC201 结构化错误码
+/// 
+/// 使用示例（真正的一行代码）：
+/// <code>
+/// public class TradeCreateEndpoint(INexusEngine engine) : NexusEndpoint&lt;TradeCreateRequest&gt;(engine)
+/// {
+/// }
+/// </code>
+/// 
+/// 路由示例（由元数据注册中心生成）：
+/// - OperationId: "alipay.trade.create"
+/// - HTTP 路由: POST /alipay/{profileId}/trade/create
+/// </summary>
+public abstract class NexusEndpoint<TRequest, TResponse>(INexusEngine engine)
+    : Endpoint<TRequest, TResponse>
+    where TRequest : IApiRequest<TResponse>, new()
+    where TResponse : class, new()
 {
     /// <summary>
-    /// NexusEndpoint 基类：实现 Zero-Code 承诺的核心
+    /// 配置 Endpoint（自动路由）
     /// 
-    /// 职责：
-    /// 1. 自动提取租户上下文（TenantContextFactory）
-    /// 2. 自动调用 NexusEngine 调度执行
-    /// 3. 自动处理异常转换（租户异常 → HTTP 403）
-    /// 4. 自动推断响应类型（从 IApiRequest&lt;TResponse&gt;）
-    /// 
-    /// 使用示例（真正的"一行代码"）：
-    /// <code>
-    /// public class TradeCreateEndpoint : NexusEndpoint&lt;TradeCreateRequest&gt;
-    /// {
-    ///     public TradeCreateEndpoint(INexusEngine engine) : base(engine) { }
-    /// }
-    /// </code>
-    /// 
-    /// 自动生成的路由：
-    /// - OperationId: "alipay.trade.create"
-    /// - HTTP 路由: POST /alipay/trade/create
-    /// 
-    /// 自动处理的异常：
-    /// - NexusTenantException → HTTP 403 Forbidden
-    /// - ArgumentException → HTTP 400 Bad Request
-    /// - 其他异常 → HTTP 500 Internal Server Error
-    /// 
-    /// 设计约束：
-    /// - 继承自 FastEndpoints.Endpoint (7.x)
-    /// - 泛型约束：TRequest : IApiRequest&lt;TResponse&gt;
-    /// - .NET 10 Primary Constructors 简化注入
+    /// 宪法 002：强制路由模式 /{provider}/{profileId}/{operation}
+    /// 这里的路由应由元数据注册中心动态生成，暂以占位形式表达物理约束。
     /// </summary>
-    public abstract class NexusEndpoint<TRequest, TResponse>(INexusEngine engine)
-        : Endpoint<TRequest, TResponse>
-        where TRequest : IApiRequest<TResponse>, new()
-        where TResponse : class, new()
+    public override void Configure()
     {
-        /// <summary>
-        /// 配置 Endpoint（自动路由）
-        /// </summary>
-        public override void Configure()
-        {
-            // TODO: 从 NexusContractMetadataRegistry 获取 OperationId 并转换为路由
-            // 例如：OperationId "alipay.trade.create" → POST /alipay/trade/create
-
-            // 临时实现：使用默认路由
-            Post($"/api/{typeof(TRequest).Name}");
-            AllowAnonymous(); // TODO: 根据实际需求配置认证
-        }
-
-        /// <summary>
-        /// 处理请求（Zero-Code 核心逻辑）
-        /// </summary>
-        public override async Task<TResponse> ExecuteAsync(TRequest req, CancellationToken ct)
-        {
-            // 1. 提取租户上下文
-            var tenantContext = await TenantContextFactory.CreateAsync(HttpContext);
-
-            // 2. 调用 NexusEngine 执行（异常由 FastEndpoints 全局处理）
-            var response = await engine.ExecuteAsync(req, tenantContext, ct);
-
-            // 3. 返回响应
-            return response;
-        }
+        Post("/api/{provider}/{profileId}/" + typeof(TRequest).Name.ToLower());
+        AllowAnonymous();
     }
 
     /// <summary>
-    /// NexusEndpoint 简化版（自动推断 TResponse）
+    /// 处理请求（Zero-Code 核心逻辑）
     /// 
-    /// 使用示例（推荐）：
-    /// <code>
-    /// public class TradeCreateEndpoint(INexusEngine engine) : NexusEndpoint&lt;TradeCreateRequest&gt;(engine)
-    /// {
-    /// }
-    /// </code>
+    /// 流程：
+    /// 1. 物理寻址提取 (宪法 002) - 路径不匹配由框架返回 404，逻辑层只负责提取
+    /// 2. 调度执行 (宪法 004/008)
+    /// 3. 响应回填 (宪法 008)
     /// </summary>
-    public abstract class NexusEndpoint<TRequest>(INexusEngine engine)
-        : NexusEndpoint<TRequest, Abstractions.EmptyResponse>(engine)
-        where TRequest : IApiRequest<Abstractions.EmptyResponse>, new()
+    public override async Task HandleAsync(TRequest req, CancellationToken ct)
     {
+        // 1. 物理寻址提取 (宪法 002) - 路径不匹配直接由框架返回 404，
+        // 逻辑层只负责提取。若缺少关键参数，直接抛出 NXC 结构化诊断码。
+        var provider = Route<string>("provider");
+        var profileId = Route<string>("profileId");
+        
+        // 物理寻址卫哨：确保两个参数都完整（失败则抛出 NXC201）
+        NexusGuard.EnsurePhysicalAddress(provider, profileId, nameof(NexusEndpoint<TRequest, TResponse>));
+
+        // 2. 调度执行 (宪法 004/008)
+        // 抛弃 ITenantIdentity，直接传递物理字符串。
+        var response = await engine.ExecuteAsync(req, provider, profileId, ct);
+
+        // 3. 响应回填 (宪法 008) - 序列化响应并发送
+        HttpContext.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(HttpContext.Response.Body, response, typeof(TResponse), cancellationToken: ct);
     }
 }
+
+/// <summary>
+/// NexusEndpoint 简化版：自动推断 EmptyResponse
+/// 
+/// 使用示例（推荐）：
+/// <code>
+/// public class TradeCreateEndpoint(INexusEngine engine) : NexusEndpoint&lt;TradeCreateRequest&gt;(engine)
+/// {
+/// }
+/// </code>
+/// </summary>
+public abstract class NexusEndpoint<TRequest>(INexusEngine engine)
+    : NexusEndpoint<TRequest, Abstractions.EmptyResponse>(engine)
+    where TRequest : IApiRequest<Abstractions.EmptyResponse>, new();
+

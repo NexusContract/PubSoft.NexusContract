@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using NexusContract.Abstractions.Configuration;
-using NexusContract.Abstractions.Contracts;
 using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Security;
 using NexusContract.Core.Configuration;
@@ -184,35 +183,33 @@ namespace NexusContract.Hosting.Configuration
         }
 
         /// <summary>
-        /// JIT 解析配置（支持默认 AppId 自动解析）
+        /// JIT 解析配置（O(1) 精确匹配，支持 L1/L2 缓存）
         /// 
-        /// 解析策略：
-        /// 1. ProfileId 存在 → 精确匹配：sysid + appid + providername
-        /// 2. ProfileId 为空 → 默认匹配：sysid + providername + default appid
-        ///    - 尝试查找标记为 default 的 AppId
-        ///    - 若无默认标记，返回 first AppId
-        /// 3. 查询顺序：L1（内存）→ L2（Redis）
+        /// 工作流：
+        /// 1. 验证 profileId 非空（否则抛 NXC201）
+        /// 2. 查询 L1 内存缓存（Redis Key: `config:{provider}:{profileId}`）→ 命中则返回
+        /// 3. 查询 L2 Redis 缓存 → 命中则回填 L1 并返回
+        /// 4. 未找到配置 → 抛出 NexusTenantException.NotFound（NXC201）
+        /// 
+        /// 宪法约束（月月红 003 - 物理槽位隔离）：
+        /// - profileId 必须非空且明确
+        /// - Redis Key 格式必须严格为 `config:{provider}:{profileId}`
+        /// - 所有查询都是 O(1) 精确匹配
         /// </summary>
+        /// <param name="providerName">Provider 标识（例如 "Alipay"）</param>
+        /// <param name="profileId">档案标识（显式必填，禁止 null/empty）</param>
+        /// <param name="ct">取消令牌</param>
+        /// <returns>Provider 物理配置（含私钥）</returns>
+        /// <exception cref="NexusTenantException">配置未找到（NXC201）或参数无效</exception>
         public async Task<IProviderConfiguration> ResolveAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             CancellationToken ct = default)
         {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
+            // 防御性校验：确保物理地址完整（宪法 002/003）
+            NexusGuard.EnsurePhysicalAddress(providerName, profileId, nameof(HybridConfigResolver));
 
-            // 如果 ProfileId 为空，自动解析默认 AppId
-            ITenantIdentity resolvedIdentity = identity;
-            if (string.IsNullOrWhiteSpace(identity.ProfileId))
-            {
-                resolvedIdentity = await ResolveDefaultProfileAsync(identity, ct)
-                    .ConfigureAwait(false);
-            }
-
-            // 🔐 防越权校验：验证 AppId 是否属于该 SysId（IDOR 防护）
-            await ValidateOwnershipAsync(resolvedIdentity, ct)
-                .ConfigureAwait(false);
-
-            string cacheKey = BuildCacheKey(resolvedIdentity);
+            string cacheKey = BuildCacheKey(providerName, profileId);
 
             // 1. 尝试 L1 缓存（内存），包括负缓存检查
             if (_memoryCache.TryGetValue(cacheKey, out object? cachedValue))
@@ -221,8 +218,7 @@ namespace NexusContract.Hosting.Configuration
                 if (cachedValue is NotFoundSentinel)
                 {
                     throw NexusTenantException.NotFound(
-                        $"{resolvedIdentity.ProviderName}:{resolvedIdentity.RealmId}:{resolvedIdentity.ProfileId}. " +
-                        $"Use SetConfigurationAsync() to create it.");
+                        $"{providerName}:{profileId}. Use SetConfigurationAsync() to create it.");
                 }
                 
                 // 正常配置缓存命中
@@ -267,8 +263,7 @@ namespace NexusContract.Hosting.Configuration
                 });
 
                 throw NexusTenantException.NotFound(
-                    $"{resolvedIdentity.ProviderName}:{resolvedIdentity.RealmId}:{resolvedIdentity.ProfileId}. " +
-                    $"Use SetConfigurationAsync() to create it.");
+                    $"{providerName}:{profileId}. Use SetConfigurationAsync() to create it.");
             }
             finally
             {
@@ -277,6 +272,7 @@ namespace NexusContract.Hosting.Configuration
         }
 
         /// <summary>
+        /// ⚠️ DEPRECATED: 此方法已不再使用（遗留代码）
         /// 解析默认 ProfileId（AppId）
         /// 
         /// 策略：
@@ -284,6 +280,7 @@ namespace NexusContract.Hosting.Configuration
         /// 2. 若无 default 标记，返回第一个 AppId
         /// 3. 若该 SysId 下没有任何 AppId，抛出异常
         /// </summary>
+        /*
         private async Task<ITenantIdentity> ResolveDefaultProfileAsync(
             ITenantIdentity identity,
             CancellationToken ct)
@@ -326,8 +323,11 @@ namespace NexusContract.Hosting.Configuration
                 ProfileId = firstProfileId.ToString()
             };
         }
+        */
 
+        /*
         /// <summary>
+        /// ⚠️ DEPRECATED: 此方法已不再使用（遗留代码）
         /// 防越权校验：验证 AppId 是否属于该 SysId
         /// 
         /// 实现方式（ADR-009）：
@@ -391,6 +391,7 @@ namespace NexusContract.Hosting.Configuration
         }
 
         /// <summary>
+        /// ⚠️ DEPRECATED: 此方法已不再使用（遗留代码）
         /// 记录越权尝试（安全审计）
         /// </summary>
         private void LogUnauthorizedAccess(ITenantIdentity identity)
@@ -404,28 +405,35 @@ namespace NexusContract.Hosting.Configuration
                 identity.ProfileId,
                 identity.ProviderName);
         }
+        */
 
 
 
         /// <summary>
         /// 设置租户配置（写入 Redis + 清除 L1 + Pub/Sub 通知）
         /// 
+        /// ⚠️ DEPRECATED: 此方法不再使用 ITenantIdentity 参数。请使用直接的 Redis API。
+        /// 
         /// 使用场景：
         /// - 新增租户（运营后台调用）
         /// - 更新密钥（密钥轮换）
         /// - 修改网关地址（灰度切换）
         /// </summary>
+        [Obsolete("Use direct Redis API or IConfigurationResolver implementations")]
         public async Task SetConfigurationAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             ProviderSettings configuration,
             CancellationToken ct = default)
         {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
+            if (string.IsNullOrWhiteSpace(providerName))
+                throw new ArgumentNullException(nameof(providerName));
+            if (string.IsNullOrWhiteSpace(profileId))
+                throw new ArgumentNullException(nameof(profileId));
             if (configuration == null)
                 throw new ArgumentNullException(nameof(configuration));
 
-            string cacheKey = BuildCacheKey(identity);
+            string cacheKey = BuildCacheKey(providerName, profileId);
 
             // 1. 写入 Redis（永久存储，无 TTL）
             string json = SerializeConfig(configuration);
@@ -435,24 +443,30 @@ namespace NexusContract.Hosting.Configuration
             SetL1Cache(cacheKey, configuration);
 
             // 3. 发布刷新通知（其他实例收到后清除 L1，下次请求重新加载）
-            await PublishRefreshNotificationAsync(identity).ConfigureAwait(false);
+            await PublishRefreshNotificationAsync(providerName, profileId).ConfigureAwait(false);
         }
 
         /// <summary>
         /// 删除租户配置（清除 Redis + L1 + Pub/Sub 通知）
         /// 
+        /// ⚠️ DEPRECATED: 此方法不再使用 ITenantIdentity 参数。
+        /// 
         /// 使用场景：
         /// - 租户注销
         /// - 测试数据清理
         /// </summary>
+        [Obsolete("Use direct Redis API or IConfigurationResolver implementations")]
         public async Task DeleteConfigurationAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             CancellationToken ct = default)
         {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
+            if (string.IsNullOrWhiteSpace(providerName))
+                throw new ArgumentNullException(nameof(providerName));
+            if (string.IsNullOrWhiteSpace(profileId))
+                throw new ArgumentNullException(nameof(profileId));
 
-            string cacheKey = BuildCacheKey(identity);
+            string cacheKey = BuildCacheKey(providerName, profileId);
 
             // 1. 清除 L1 缓存
             _memoryCache.Remove(cacheKey);
@@ -461,7 +475,7 @@ namespace NexusContract.Hosting.Configuration
             await _redisDb.KeyDeleteAsync(cacheKey).ConfigureAwait(false);
 
             // 3. 发布刷新通知
-            await PublishRefreshNotificationAsync(identity).ConfigureAwait(false);
+            await PublishRefreshNotificationAsync(providerName, profileId).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -470,19 +484,22 @@ namespace NexusContract.Hosting.Configuration
         /// 注意：不会删除 Redis 中的数据，只清除内存缓存
         /// </summary>
         public async Task RefreshAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             CancellationToken ct = default)
         {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
+            if (string.IsNullOrWhiteSpace(providerName))
+                throw new ArgumentNullException(nameof(providerName));
+            if (string.IsNullOrWhiteSpace(profileId))
+                throw new ArgumentNullException(nameof(profileId));
 
-            string cacheKey = BuildCacheKey(identity);
+            string cacheKey = BuildCacheKey(providerName, profileId);
 
             // 1. 清除 L1 缓存
             _memoryCache.Remove(cacheKey);
 
             // 2. 发布刷新通知（其他实例收到后清除 L1）
-            await PublishRefreshNotificationAsync(identity).ConfigureAwait(false);
+            await PublishRefreshNotificationAsync(providerName, profileId).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -547,17 +564,18 @@ namespace NexusContract.Hosting.Configuration
         /// <summary>
         /// 发布配置刷新通知（Pub/Sub）
         /// </summary>
-        /// <param name="identity">租户身份</param>
+        /// <param name="providerName">Provider 标识</param>
+        /// <param name="profileId">档案标识</param>
         /// <param name="refreshType">刷新类型（默认：ConfigChange）</param>
         private async Task PublishRefreshNotificationAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             RefreshType refreshType = RefreshType.ConfigChange)
         {
             string message = JsonSerializer.Serialize(new
             {
-                identity.ProviderName,
-                identity.RealmId,
-                identity.ProfileId,
+                providerName,
+                profileId,
                 Type = refreshType
             });
             await _redisSub.PublishAsync(new RedisChannel(_pubSubChannel, RedisChannel.PatternMode.Literal), message)
@@ -567,10 +585,10 @@ namespace NexusContract.Hosting.Configuration
         /// <summary>
         /// 构建缓存键（单个配置）
         /// </summary>
-        private string BuildCacheKey(ITenantIdentity identity)
+        private string BuildCacheKey(string providerName, string profileId)
         {
-            // 格式: "nexus:config:Alipay:2088123456789012:2021001234567890"
-            return $"{_redisKeyPrefix}{identity.ProviderName}:{identity.RealmId}:{identity.ProfileId}";
+            // 格式: "nexus:config:Alipay:2021001234567890"
+            return $"{_redisKeyPrefix}{providerName}:{profileId}";
         }
 
         /// <summary>
@@ -708,58 +726,39 @@ namespace NexusContract.Hosting.Configuration
                 });
                 if (refreshData == null) return;
 
-                // 验证必需字段（ProviderName 和 RealmId 禁止为空）
+                // 验证必需字段（ProviderName 和 ProfileId 禁止为空）
                 if (string.IsNullOrWhiteSpace(refreshData.ProviderName) || 
-                    string.IsNullOrWhiteSpace(refreshData.RealmId))
+                    string.IsNullOrWhiteSpace(refreshData.ProfileId))
                 {
                     return; // 静默忽略无效消息（缺少必需字段）
                 }
 
-                // 构建租户身份
-                var identity = new ConfigurationContext(
-                    refreshData.ProviderName,
-                    refreshData.RealmId)
-                {
-                    ProfileId = refreshData.ProfileId ?? string.Empty
-                };
-
                 // 策略 1: 始终清除配置实体缓存（精准打击）
-                string cacheKey = BuildCacheKey(identity);
+                string cacheKey = BuildCacheKey(refreshData.ProviderName, refreshData.ProfileId);
                 _memoryCache.Remove(cacheKey); // 同时清除正常缓存和负缓存（NotFoundSentinel）
 
                 // 策略 2: 根据变更类型决定是否清除 map 权限索引（按需打击）
-                string mapKey = BuildMapKey(identity.RealmId, identity.ProviderName);
-                string mapCacheKey = $"map:{mapKey}";
-
+                // 注意：新架构中不再使用 RealmId 作为键的一部分
                 switch (refreshData.Type)
                 {
                     case RefreshType.ConfigChange:
-                        // 配置变更：不清理 map（性能优化核心）
-                        // 理由：密钥轮换不影响 ProfileId 集合，无需让其他 499 个 ProfileId 重新验证权限
+                        // 配置变更：清除单个配置缓存（已在上面执行）
+                        // 理由：密钥轮换需要立即生效
                         break;
 
                     case RefreshType.MappingChange:
-                        // ✅ Map层：订阅-清除模式（ADR-009 Section 4.5.1）
-                        // 架构修正（2026-01-11）：Map层职责上移到BFF后，BFF可以接受"轻微抖动"
-                        // 简化为删除缓存，下次请求自动触发 ColdStartSyncAsync 回源 Redis
-                        _memoryCache.Remove(mapCacheKey);
-                        
-                        _logger.LogInformation(
-                            "Map cache invalidated for Realm {RealmId}: next request will trigger ColdStartSyncAsync (subscribe-clear mode)",
-                            refreshData.RealmId);
+                        // ✅ 映射变更：由于新架构中不再需要权限映射，此逻辑可省略
                         break;
 
                     case RefreshType.FullRefresh:
-                        // 全量刷新：清理 map + 尝试清理该 Realm 下所有配置（尽力而为）
-                        _memoryCache.Remove(mapCacheKey);
-                        // 注意：无法遍历 MemoryCache 清理所有 ProfileId，依赖滑动过期兜底
+                        // 全量刷新：当前架构中只需清除单个配置缓存（已在上面执行）
                         break;
                 }
             }
             catch
             {
                 // 静默失败（避免 Pub/Sub 异常影响服务稳定性）
-                // 即使消息处理失败，12 小时 TTL 也会自动兜底
+                // 即使消息处理失败，24 小时 TTL 也会自动兜底
             }
         }
 

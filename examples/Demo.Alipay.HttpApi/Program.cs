@@ -162,22 +162,21 @@ app.Run();
  * 支付宝API ISV多租户架构使用示例
  * 
  * 架构流程：
- * 1. HTTP请求 → FastEndpoints → TenantContextFactory.FromHttpContext()
- * 2. 提取租户身份 → INexusEngine.ExecuteAsync(request, identity, ct)
+ * 1. HTTP请求 → FastEndpoints → 显式提取 profileId 和 providerName（禁止隐式容器）
+ * 2. 参数传递 → INexusEngine.ExecuteAsync(request, providerName, profileId, ct)
  * 3. Engine查询 IConfigurationResolver → L1/L2/L3 加载租户配置
  * 4. IProvider.ExecuteAsync(request, config, ct) → AlipayProviderAdapter
  * 5. Adapter缓存配置 → 调用 AlipayProvider.ExecuteAsync(request, ct)
  * 6. INexusTransport(YARP) → HTTP/2 + Retry + Circuit Breaker
  * 7. 支付宝 OpenAPI v3 → 返回响应
  * 
- * 租户标识方式（3选1）：
- * - HTTP Header: X-Tenant-Id: merchant_001
- * - Query参数: ?tenantId=merchant_001
- * - JWT Claim: "sub": "merchant_001"
+ * 参数提取方式（优先级顺序）：
+ * - profileId：URL路由参数（{profileId}，绝对权威）> X-Profile-Id Header > ?profileId=xxx 查询参数
+ * - providerName：X-Provider-Name Header > ?provider=xxx 查询参数
  * 
  * 示例请求：
- * POST /v3/alipay/trade/pay
- * X-Tenant-Id: merchant_001
+ * POST /v3/alipay/{profileId}/trade/pay
+ * X-Provider-Name: Alipay
  * Content-Type: application/json
  * 
  * {
@@ -195,6 +194,6 @@ app.Run();
  * 
  * 路由规则：
  * - Contract定义: [ApiOperation("alipay.trade.pay")]
- * - FastEndpoints路由: POST /v3/alipay/trade/pay
+ * - FastEndpoints路由: POST /v3/alipay/{profileId}/trade/pay
  * - OpenAPI v3调用: POST https://openapi.alipay.com/v3/alipay/trade/pay
  */

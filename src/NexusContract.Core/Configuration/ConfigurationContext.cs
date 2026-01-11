@@ -3,17 +3,21 @@
 
 using System;
 using System.Collections.Generic;
-using NexusContract.Abstractions.Contracts;
 
 namespace NexusContract.Core.Configuration
 {
     /// <summary>
-    /// 配置上下文：将业务身份映射为物理配置的查询凭证
+    /// 配置上下文：将业务身份映射为物理配置的查询凭证（宪法版本）
     /// 
     /// 职责：
     /// - 封装配置查询的业务标识（ProviderName + RealmId + ProfileId）
-    /// - 作为 IConfigurationResolver.ResolveAsync() 的输入参数
     /// - 支持扩展元数据（用于配置分片、多环境等场景）
+    /// 
+    /// 设计约束（宪法）：
+    /// - 宪法 004（职责分离）：本类不再实现身份接口，仅作为配置查询的数据载体
+    /// - 宪法 007（性能优先）：消除抽象包装，直接使用字符串参数
+    /// - .NET Standard 2.0 兼容（不使用 required、init 等 C# 9+ 特性）
+    /// - 强制构造函数校验（防止无效查询）
     /// 
     /// 术语映射（Realm 概念）：
     /// - **ProviderName**: 渠道标识 (e.g., "Alipay", "WeChat")
@@ -34,21 +38,17 @@ namespace NexusContract.Core.Configuration
     /// 
     /// 使用场景：
     /// <code>
-    /// // 在 Provider 中构造配置上下文
-    /// var configCtx = new ConfigurationContext("Alipay", tenantCtx.RealmId)
+    /// // 在 Provider 中构造配置上下文（旧方式，已弃用）
+    /// var configCtx = new ConfigurationContext("Alipay", realmId)
     /// {
-    ///     ProfileId = tenantCtx.ProfileId
+    ///     ProfileId = profileId
     /// };
     /// 
-    /// // 解析配置（会触发 Realm 权限校验）
-    /// var settings = await _configResolver.ResolveAsync(configCtx, ct);
+    /// // 新方式：直接使用字符串参数
+    /// var settings = await _configResolver.ResolveAsync(providerName, profileId, ct);
     /// </code>
-    /// 
-    /// 设计约束：
-    /// - .NET Standard 2.0 兼容（不使用 required、init 等 C# 9+ 特性）
-    /// - 强制构造函数校验（防止无效查询）
     /// </summary>
-    public sealed class ConfigurationContext : ITenantIdentity
+    public sealed class ConfigurationContext
     {
         /// <summary>
         /// 渠道标识 (e.g., "Alipay", "WeChat", "UnionPay")
