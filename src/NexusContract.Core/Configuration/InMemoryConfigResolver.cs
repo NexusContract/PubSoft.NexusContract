@@ -68,7 +68,7 @@ namespace NexusContract.Core.Configuration
             {
                 foreach (var config in presetConfigurations)
                 {
-                    string key = BuildCacheKey(config.ProviderName, config.MerchantId, config.AppId);
+                    string key = BuildCacheKey(config.ProviderName, config.AppId);
                     _cache[key] = config;
                 }
             }
@@ -84,7 +84,7 @@ namespace NexusContract.Core.Configuration
         public InMemoryConfigResolver(string configFilePath, bool enableHotReload = true)
         {
             if (string.IsNullOrWhiteSpace(configFilePath))
-                throw new ArgumentNullException(nameof(configFilePath));
+                NexusGuard.EnsureNonEmptyString(configFilePath);
 
             if (!File.Exists(configFilePath))
                 throw new FileNotFoundException($"Configuration file not found: {configFilePath}");
@@ -118,13 +118,14 @@ namespace NexusContract.Core.Configuration
         /// JIT 解析配置（内存查询）
         /// </summary>
         public Task<IProviderConfiguration> ResolveAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             CancellationToken ct = default)
         {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
+            // 防御性校验：确保物理地址完整（宪法 002/003）
+            NexusGuard.EnsurePhysicalAddress(providerName, profileId, nameof(InMemoryConfigResolver));
 
-            string key = BuildCacheKey(identity.ProviderName, identity.RealmId, identity.ProfileId);
+            string key = BuildCacheKey(providerName, profileId);
 
             if (_cache.TryGetValue(key, out var settings))
             {
@@ -132,21 +133,24 @@ namespace NexusContract.Core.Configuration
             }
 
             // 配置未找到
-            throw NexusTenantException.NotFound(
-                $"{identity.ProviderName}:{identity.RealmId}:{identity.ProfileId}");
+            throw new ContractIncompleteException(
+                nameof(InMemoryConfigResolver),
+                ContractDiagnosticRegistry.NXC201,
+                $"Configuration not found: {providerName}/{profileId}");
         }
 
         /// <summary>
         /// 刷新配置缓存（内存实现：删除指定配置）
         /// </summary>
         public Task RefreshAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             CancellationToken ct = default)
         {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
+            // 防御性校验：确保物理地址完整（宪法 002/003）
+            NexusGuard.EnsurePhysicalAddress(providerName, profileId, nameof(InMemoryConfigResolver));
 
-            string key = BuildCacheKey(identity.ProviderName, identity.RealmId, identity.ProfileId);
+            string key = BuildCacheKey(providerName, profileId);
             _cache.TryRemove(key, out _);
 
             return Task.CompletedTask;
@@ -168,9 +172,9 @@ namespace NexusContract.Core.Configuration
         public void AddOrUpdate(ProviderSettings settings)
         {
             if (settings == null)
-                throw new ArgumentNullException(nameof(settings));
+                NexusGuard.EnsurePhysicalAddress(settings);
 
-            string key = BuildCacheKey(settings.ProviderName, settings.MerchantId, settings.AppId);
+            string key = BuildCacheKey(settings.ProviderName, settings.AppId);
             _cache[key] = settings;
         }
 
@@ -178,12 +182,11 @@ namespace NexusContract.Core.Configuration
         /// 删除配置
         /// </summary>
         /// <param name="providerName">Provider 标识</param>
-        /// <param name="realmId">域标识</param>
         /// <param name="profileId">档案标识</param>
         /// <returns>是否删除成功</returns>
-        public bool Remove(string providerName, string realmId, string profileId)
+        public bool Remove(string providerName, string profileId)
         {
-            string key = BuildCacheKey(providerName, realmId, profileId);
+            string key = BuildCacheKey(providerName, profileId);
             return _cache.TryRemove(key, out _);
         }
 
@@ -217,12 +220,12 @@ namespace NexusContract.Core.Configuration
         public int Count => _cache.Count;
 
         /// <summary>
-        /// 构建缓存键（Provider:Realm:Profile）
+        /// 构建缓存键（Provider:Profile）
         /// </summary>
-        private static string BuildCacheKey(string providerName, string realmId, string profileId)
+        private static string BuildCacheKey(string providerName, string profileId)
         {
-            // 格式: "Alipay:2088123456789012:2021001234567890"
-            return $"{providerName}:{realmId}:{profileId}";
+            // 格式: "Alipay:2021001234567890"
+            return $"{providerName}:{profileId}";
         }
 
         /// <summary>
@@ -249,18 +252,20 @@ namespace NexusContract.Core.Configuration
                         // 验证配置完整性
                         if (!config.Validate(out string? error))
                         {
-                            throw new InvalidOperationException(
+                            throw new NexusContract.Abstractions.Exceptions.ContractIncompleteException(
+                                "InMemoryConfigResolver",
                                 $"Invalid configuration in file: {error}");
                         }
 
-                        string key = BuildCacheKey(config.ProviderName, config.MerchantId, config.AppId);
+                        string key = BuildCacheKey(config.ProviderName, config.AppId);
                         _cache[key] = config;
                     }
                 }
             }
             catch (JsonException ex)
             {
-                throw new InvalidOperationException(
+                throw new NexusContract.Abstractions.Exceptions.ContractIncompleteException(
+                    "InMemoryConfigResolver",
                     $"Failed to parse configuration file: {_configFilePath}", ex);
             }
         }

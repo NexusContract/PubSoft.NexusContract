@@ -9,7 +9,7 @@ built on **.NET Standard 2.0 + .NET 10**.
 > **“Explicit boundaries over implicit magic.”**  
 > This is not a slogan — it is the constitutional principle of NexusContract.
 
-> ## 📐 Architecture Blueprint (v1.1 — ISV Multi‑Tenant)
+> ## 📐 Architecture Blueprint (v1.1 — Provider 物理扩展与跨云支持)
 > The full architecture blueprint is available at `docs/ARCHITECTURE_BLUEPRINT.md` (v1.1, 2026‑01‑10).  
 > **Current codebase:** `v1.0.0‑preview.10` — core constitutional constraints are implemented (startup validation, zero reflection, deterministic execution). ISV extensions (JIT Resolver, Realm/Profile, YarpTransport) are being progressively implemented and validated in controlled environments.
 

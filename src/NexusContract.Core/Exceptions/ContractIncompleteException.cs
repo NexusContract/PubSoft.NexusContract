@@ -3,6 +3,7 @@
 
 using System;
 using System.Linq;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Core.Reflection;
 
 namespace NexusContract.Core.Exceptions
@@ -49,7 +50,8 @@ namespace NexusContract.Core.Exceptions
         public ContractIncompleteException(DiagnosticReport report)
             : base(GenerateMessage(report))
         {
-            Report = report ?? throw new ArgumentNullException(nameof(report));
+            NexusGuard.EnsurePhysicalAddress(report);
+            Report = report;
             ErrorCount = report.Diagnostics.Count(d => d.Severity >= DiagnosticSeverity.Error);
             CriticalCount = report.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Critical);
             FailedContractCount = report.FailedCount;
@@ -59,7 +61,8 @@ namespace NexusContract.Core.Exceptions
         public ContractIncompleteException(DiagnosticReport report, string customMessage)
             : base(customMessage)
         {
-            Report = report ?? throw new ArgumentNullException(nameof(report));
+            NexusGuard.EnsurePhysicalAddress(report);
+            Report = report;
             ErrorCount = report.Diagnostics.Count(d => d.Severity >= DiagnosticSeverity.Error);
             CriticalCount = report.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Critical);
             FailedContractCount = report.FailedCount;

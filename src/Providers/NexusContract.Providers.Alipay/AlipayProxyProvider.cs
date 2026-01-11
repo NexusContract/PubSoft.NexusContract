@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using NexusContract.Abstractions.Contracts;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Transport;
 using NexusContract.Core.Reflection;
 
@@ -57,8 +58,11 @@ namespace NexusContract.Providers.Alipay
         /// <param name="transport">Nexus 传输层（推荐，生产级）</param>
         public AlipayProxyProvider(AlipayProviderConfig config, INexusTransport transport)
         {
-            _config = config ?? throw new ArgumentNullException(nameof(config));
-            _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+            NexusGuard.EnsurePhysicalAddress(config);
+            NexusGuard.EnsurePhysicalAddress(transport);
+            
+            _config = config;
+            _transport = transport;
 
             // 配置 JSON 序列化选项
             _jsonOptions = new JsonSerializerOptions
@@ -78,8 +82,11 @@ namespace NexusContract.Providers.Alipay
         /// <param name="httpClient">HTTP 客户端（应注入 AlipaySignatureHandler）</param>
         public AlipayProxyProvider(AlipayProviderConfig config, HttpClient httpClient)
         {
-            _config = config ?? throw new ArgumentNullException(nameof(config));
-            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            NexusGuard.EnsurePhysicalAddress(config);
+            NexusGuard.EnsurePhysicalAddress(httpClient);
+            
+            _config = config;
+            _httpClient = httpClient;
 
             // 配置 JSON 序列化选项
             _jsonOptions = new JsonSerializerOptions
@@ -94,10 +101,8 @@ namespace NexusContract.Providers.Alipay
 
         private void ValidateConfiguration()
         {
-            if (string.IsNullOrWhiteSpace(_config.AppId))
-                throw new InvalidOperationException("AppId is required");
-            if (string.IsNullOrWhiteSpace(_config.PrivateKey))
-                throw new InvalidOperationException("PrivateKey is required for request signing");
+            NexusGuard.EnsureNonEmptyString(_config.AppId);
+            NexusGuard.EnsureNonEmptyString(_config.PrivateKey);
         }
 
         /// <summary>
@@ -114,8 +119,7 @@ namespace NexusContract.Providers.Alipay
             CancellationToken cancellationToken = default)
             where TResponse : class, new()
         {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request));
+            NexusGuard.EnsurePhysicalAddress(request);
 
             // 1. 获取 API 路径（从 [ApiOperation] 属性）
             Type requestType = request.GetType();

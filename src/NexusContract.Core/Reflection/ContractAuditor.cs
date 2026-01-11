@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using NexusContract.Abstractions.Attributes;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Core.Utilities;
 
 namespace NexusContract.Core.Reflection
@@ -32,10 +33,8 @@ namespace NexusContract.Core.Reflection
             ApiFieldAttribute apiFieldAttribute,
             int currentDepth)
         {
-            if (propertyInfo == null)
-                throw new ArgumentNullException(nameof(propertyInfo));
-            if (apiFieldAttribute == null)
-                throw new ArgumentNullException(nameof(apiFieldAttribute));
+            NexusGuard.EnsurePhysicalAddress(propertyInfo);
+            NexusGuard.EnsurePhysicalAddress(apiFieldAttribute);
 
             // 计算是否为复杂类型
             bool isComplexType = TypeUtilities.IsComplexType(propertyInfo.PropertyType);

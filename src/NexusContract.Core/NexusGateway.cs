@@ -69,8 +69,7 @@ namespace NexusContract.Core
             IEncryptor? encryptor = null,
             IDecryptor? decryptor = null)
         {
-            if (namingPolicy == null)
-                throw new ArgumentNullException(nameof(namingPolicy));
+            NexusGuard.EnsurePhysicalAddress(namingPolicy);
 
             _projectionEngine = new ProjectionEngine(namingPolicy, encryptor);
             _hydrationEngine = new ResponseHydrationEngine(namingPolicy, decryptor);
@@ -88,10 +87,8 @@ namespace NexusContract.Core
             CancellationToken ct = default)
             where TResponse : class, new()
         {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request));
-            if (executorAsync == null)
-                throw new ArgumentNullException(nameof(executorAsync));
+            NexusGuard.EnsurePhysicalAddress(request);
+            NexusGuard.EnsurePhysicalAddress(executorAsync);
 
             try
             {
@@ -124,8 +121,9 @@ namespace NexusContract.Core
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException(
+                throw new ContractIncompleteException(
                     $"[NexusGateway.ExecuteAsync] Unexpected error during request execution.",
+                    "NXC101",
                     ex);
             }
         }
@@ -136,8 +134,7 @@ namespace NexusContract.Core
         public IDictionary<string, object> Project<TContract>(TContract contract)
             where TContract : notnull
         {
-            if (contract == null)
-                throw new ArgumentNullException(nameof(contract));
+            NexusGuard.EnsurePhysicalAddress(contract);
 
             try
             {
@@ -157,8 +154,7 @@ namespace NexusContract.Core
         public TResponse Hydrate<TResponse>(IDictionary<string, object> source)
             where TResponse : new()
         {
-            if (source == null)
-                throw new ArgumentNullException(nameof(source));
+            NexusGuard.EnsurePhysicalAddress(source);
 
             try
             {

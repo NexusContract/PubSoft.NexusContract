@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using NexusContract.Abstractions.Configuration;
-using NexusContract.Abstractions.Contracts;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Security;
 using NexusContract.Core.Configuration;
@@ -28,7 +28,7 @@ namespace NexusContract.Hosting.Configuration
     /// 
     /// 缓存策略优化（针对"5年不变"的极低频变更场景）：
     /// - 滑动过期（24h）+ 永不剔除 + Pub/Sub 强一致性 → 99.99% L1 命中率，消除"卡点"
-    /// - 负缓存（1min）→ 防穿透攻击（恶意扫描不存在的 RealmId）
+    /// - 负缓存（1min）→ 防穿透攻击（恶意扫描不存在的 profileId）
     /// 
     /// 架构决策（ADR-008: Redis-First Tenant Storage）：
     /// - 使用 Redis 作为租户配置主数据源（替代关系型数据库）
@@ -50,7 +50,7 @@ namespace NexusContract.Hosting.Configuration
     /// 安全约束：
     /// - PrivateKey 序列化到 Redis 时必须加密（AES256）
     /// - Redis 连接使用 TLS 加密传输
-    /// - 缓存键包含租户隔离信息
+    /// - 缓存键包含物理配置隔离信息
     /// 
     /// 使用场景：
     /// - 生产环境：高并发 ISV 网关
@@ -66,7 +66,6 @@ namespace NexusContract.Hosting.Configuration
         private readonly ISecurityProvider _securityProvider;
         private readonly ILogger<HybridConfigResolver> _logger;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks;
-        private readonly ConcurrentDictionary<string, SemaphoreSlim> _mapLockDict; // 用于 map 冷启动加锁
         private readonly string _redisKeyPrefix;
         private readonly string _pubSubChannel;
         private readonly TimeSpan _l1Ttl;
@@ -135,7 +134,7 @@ namespace NexusContract.Hosting.Configuration
         /// 设计理念（防穿透攻击）：
         /// - 缓存不存在的配置（避免恶意请求反复查询 Redis）
         /// - 建议短 TTL（如 1 分钟）以便配置快速生效，但实际可用时间依赖于部署与回源策略
-        /// - 足以抵御短时间内的穿透攻击（如暴力扫描 RealmId）
+        /// - 足以抵御短时间内的穿透攻击（如暴力扫描 profileId）
         /// </summary>
         private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromMinutes(1);
 
@@ -165,14 +164,18 @@ namespace NexusContract.Hosting.Configuration
             TimeSpan? l1Ttl = null,
             TimeSpan? l2Ttl = null)
         {
-            _redis = redis ?? throw new ArgumentNullException(nameof(redis));
-            _memoryCache = memoryCache ?? throw new ArgumentNullException(nameof(memoryCache));
-            _securityProvider = securityProvider ?? throw new ArgumentNullException(nameof(securityProvider));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            NexusGuard.EnsurePhysicalAddress(redis);
+            NexusGuard.EnsurePhysicalAddress(memoryCache);
+            NexusGuard.EnsurePhysicalAddress(securityProvider);
+            NexusGuard.EnsurePhysicalAddress(logger);
+            
+            _redis = redis;
+            _memoryCache = memoryCache;
+            _securityProvider = securityProvider;
+            _logger = logger;
             _redisDb = redis.GetDatabase();
             _redisSub = redis.GetSubscriber();
             _locks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
-            _mapLockDict = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
             _redisKeyPrefix = redisKeyPrefix ?? DefaultKeyPrefix;
             _pubSubChannel = DefaultPubSubChannel;
             _l1Ttl = l1Ttl ?? DefaultL1Ttl;
@@ -184,35 +187,33 @@ namespace NexusContract.Hosting.Configuration
         }
 
         /// <summary>
-        /// JIT 解析配置（支持默认 AppId 自动解析）
+        /// JIT 解析配置（O(1) 精确匹配，支持 L1/L2 缓存）
         /// 
-        /// 解析策略：
-        /// 1. ProfileId 存在 → 精确匹配：sysid + appid + providername
-        /// 2. ProfileId 为空 → 默认匹配：sysid + providername + default appid
-        ///    - 尝试查找标记为 default 的 AppId
-        ///    - 若无默认标记，返回 first AppId
-        /// 3. 查询顺序：L1（内存）→ L2（Redis）
+        /// 工作流：
+        /// 1. 验证 profileId 非空（否则抛 NXC201）
+        /// 2. 查询 L1 内存缓存（Redis Key: `config:{provider}:{profileId}`）→ 命中则返回
+        /// 3. 查询 L2 Redis 缓存 → 命中则回填 L1 并返回
+        /// 4. 未找到配置 → 抛出 ContractIncompleteException（NXC201）
+        /// 
+        /// 宪法约束（月月红 003 - 物理槽位隔离）：
+        /// - profileId 必须非空且明确
+        /// - Redis Key 格式必须严格为 `config:{provider}:{profileId}`
+        /// - 所有查询都是 O(1) 精确匹配
         /// </summary>
+        /// <param name="providerName">Provider 标识（例如 "Alipay"）</param>
+        /// <param name="profileId">档案标识（显式必填，禁止 null/empty）</param>
+        /// <param name="ct">取消令牌</param>
+        /// <returns>Provider 物理配置（含私钥）</returns>
+        /// <exception cref="ContractIncompleteException">配置未找到（NXC201）或参数无效</exception>
         public async Task<IProviderConfiguration> ResolveAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             CancellationToken ct = default)
         {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
+            // 防御性校验：确保物理地址完整（宪法 002/003）
+            NexusGuard.EnsurePhysicalAddress(providerName, profileId, nameof(HybridConfigResolver));
 
-            // 如果 ProfileId 为空，自动解析默认 AppId
-            ITenantIdentity resolvedIdentity = identity;
-            if (string.IsNullOrWhiteSpace(identity.ProfileId))
-            {
-                resolvedIdentity = await ResolveDefaultProfileAsync(identity, ct)
-                    .ConfigureAwait(false);
-            }
-
-            // 🔐 防越权校验：验证 AppId 是否属于该 SysId（IDOR 防护）
-            await ValidateOwnershipAsync(resolvedIdentity, ct)
-                .ConfigureAwait(false);
-
-            string cacheKey = BuildCacheKey(resolvedIdentity);
+            string cacheKey = BuildCacheKey(providerName, profileId);
 
             // 1. 尝试 L1 缓存（内存），包括负缓存检查
             if (_memoryCache.TryGetValue(cacheKey, out object? cachedValue))
@@ -220,15 +221,9 @@ namespace NexusContract.Hosting.Configuration
                 // 检查是否为负缓存标记（配置不存在）
                 if (cachedValue is NotFoundSentinel)
                 {
-                    throw NexusTenantException.NotFound(
-                        $"{resolvedIdentity.ProviderName}:{resolvedIdentity.RealmId}:{resolvedIdentity.ProfileId}. " +
-                        $"Use SetConfigurationAsync() to create it.");
-                }
-                
-                // 正常配置缓存命中
-                if (cachedValue is ProviderSettings l1Config)
-                {
-                    return l1Config;
+                    throw new ContractIncompleteException(
+                        nameof(HybridConfigResolver),
+                        $"Configuration not found: {providerName}:{profileId}. Please check provider name and profile ID.");
                 }
             }
 
@@ -266,9 +261,9 @@ namespace NexusContract.Hosting.Configuration
                     Size = 1
                 });
 
-                throw NexusTenantException.NotFound(
-                    $"{resolvedIdentity.ProviderName}:{resolvedIdentity.RealmId}:{resolvedIdentity.ProfileId}. " +
-                    $"Use SetConfigurationAsync() to create it.");
+                throw new ContractIncompleteException(
+                    nameof(HybridConfigResolver),
+                    $"Configuration not found: {providerName}:{profileId}. Please check provider name and profile ID.");
             }
             finally
             {
@@ -276,193 +271,11 @@ namespace NexusContract.Hosting.Configuration
             }
         }
 
-        /// <summary>
-        /// 解析默认 ProfileId（AppId）
-        /// 
-        /// 策略：
-        /// 1. 查找 Redis Hash 中标记为 default 的 AppId
-        /// 2. 若无 default 标记，返回第一个 AppId
-        /// 3. 若该 SysId 下没有任何 AppId，抛出异常
-        /// </summary>
-        private async Task<ITenantIdentity> ResolveDefaultProfileAsync(
-            ITenantIdentity identity,
-            CancellationToken ct)
-        {
-            // 1. 查询映射层（Redis Set）获取所有可用 ProfileId
-            string mapKey = BuildMapKey(identity.RealmId, identity.ProviderName);
-
-            // 2. 尝试获取默认 ProfileId 标记（存储在 map 的元数据中）
-            string defaultMarker = $"{mapKey}:default";
-            RedisValue defaultProfileId = await _redisDb.StringGetAsync(defaultMarker)
-                .ConfigureAwait(false);
-
-            if (defaultProfileId.HasValue)
-            {
-                return new ConfigurationContext(identity.ProviderName, identity.RealmId)
-                {
-                    ProfileId = defaultProfileId.ToString()
-                };
-            }
-
-            // 3. 如果未设置默认，从 map 中获取第一个 ProfileId
-            var allProfileIds = await _redisDb.SetMembersAsync(mapKey)
-                .ConfigureAwait(false);
-
-            if (allProfileIds == null || allProfileIds.Length == 0)
-            {
-                throw new NexusTenantException(
-                    $"No ProfileId found for RealmId '{identity.RealmId}' in Provider '{identity.ProviderName}'");
-            }
-
-            var firstProfileId = allProfileIds[0];
-            if (firstProfileId.IsNullOrEmpty)
-            {
-                throw new NexusTenantException(
-                    $"No valid ProfileId found for RealmId '{identity.RealmId}' in Provider '{identity.ProviderName}'");
-            }
-
-            return new ConfigurationContext(identity.ProviderName, identity.RealmId)
-            {
-                ProfileId = firstProfileId.ToString()
-            };
-        }
-
-        /// <summary>
-        /// 防越权校验：验证 AppId 是否属于该 SysId
-        /// 
-        /// 实现方式（ADR-009）：
-        /// - L1 缓存整个 HashSet（map 层）
-        /// - 使用 SlidingExpiration（24h）+ NeverRemove，旨在提高 L1 命中率（需监控内存使用与命中率）
-        /// - 冷启动自愈：L1 未命中时自动从 Redis 拉取并缓存
-        /// - 负缓存：空 Set 缓存 5 分钟（防止恶意探测不存在的 Realm）
-        /// 
-        /// 安全设计：
-        /// - 使用 Redis Set 存储权限白名单（O(1) 查询）
-        /// - 权限索引缓存到 L1（24 小时滑动过期）
-        /// - 记录所有越权尝试（安全审计）
-        /// - 强制校验，任何未授权访问直接拒绝
-        /// 
-        /// 攻击场景防护：
-        /// - 场景 1：攻击者猜测其他租户的 AppId
-        ///   → 由于不在其 SysId 的索引内，直接拦截
-        /// - 场景 2：攻击者伪造 SysId
-        ///   → 签名验证失败（在 Provider 层拦截）
-        /// </summary>
-        private async Task ValidateOwnershipAsync(
-            ITenantIdentity identity,
-            CancellationToken ct)
-        {
-            // 使用统一的 map 层进行权限校验（废弃独立的 index 层）
-            string mapKey = BuildMapKey(identity.RealmId, identity.ProviderName);
-            string mapCacheKey = $"map:{mapKey}";
-
-            // 1. 尝试从 L1 缓存读取 HashSet（map 层）
-            HashSet<string>? authorizedSet;
-            if (_memoryCache.TryGetValue<HashSet<string>>(mapCacheKey, out authorizedSet) 
-                && authorizedSet != null)
-            {
-                // L1 命中：直接判断权限
-                if (authorizedSet.Contains(identity.ProfileId!))
-                {
-                    return; // 已授权
-                }
-
-                // 缓存中已确认无权限（包括负缓存情况）
-                LogUnauthorizedAccess(identity);
-                throw new UnauthorizedAccessException(
-                    $"AppId '{identity.ProfileId}' is not authorized for SysId '{identity.RealmId}'");
-            }
-
-            // 2. L1 未命中：触发冷启动自愈（Pull 模式）
-            authorizedSet = await ColdStartSyncAsync(identity.RealmId, identity.ProviderName, ct)
-                .ConfigureAwait(false);
-
-            // 3. 验证权限
-            if (authorizedSet.Contains(identity.ProfileId!))
-            {
-                return; // 已授权
-            }
-
-            // 4. 无权限：记录安全事件并拒绝
-            LogUnauthorizedAccess(identity);
-            throw new UnauthorizedAccessException(
-                $"AppId '{identity.ProfileId}' is not authorized for SysId '{identity.RealmId}'. " +
-                $"This access attempt has been logged for security audit.");
-        }
-
-        /// <summary>
-        /// 记录越权尝试（安全审计）
-        /// </summary>
-        private void LogUnauthorizedAccess(ITenantIdentity identity)
-        {
-            _logger.LogWarning(
-                "🚨 Potential IDOR attack blocked: " +
-                "SysId '{SysId}' attempted to access unauthorized AppId '{AppId}' " +
-                "for Provider '{Provider}'. " +
-                "[Security Event]",
-                identity.RealmId,
-                identity.ProfileId,
-                identity.ProviderName);
-        }
 
 
 
-        /// <summary>
-        /// 设置租户配置（写入 Redis + 清除 L1 + Pub/Sub 通知）
-        /// 
-        /// 使用场景：
-        /// - 新增租户（运营后台调用）
-        /// - 更新密钥（密钥轮换）
-        /// - 修改网关地址（灰度切换）
-        /// </summary>
-        public async Task SetConfigurationAsync(
-            ITenantIdentity identity,
-            ProviderSettings configuration,
-            CancellationToken ct = default)
-        {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
-            if (configuration == null)
-                throw new ArgumentNullException(nameof(configuration));
 
-            string cacheKey = BuildCacheKey(identity);
 
-            // 1. 写入 Redis（永久存储，无 TTL）
-            string json = SerializeConfig(configuration);
-            await _redisDb.StringSetAsync(cacheKey, json).ConfigureAwait(false);
-
-            // 2. 回填 L1 缓存
-            SetL1Cache(cacheKey, configuration);
-
-            // 3. 发布刷新通知（其他实例收到后清除 L1，下次请求重新加载）
-            await PublishRefreshNotificationAsync(identity).ConfigureAwait(false);
-        }
-
-        /// <summary>
-        /// 删除租户配置（清除 Redis + L1 + Pub/Sub 通知）
-        /// 
-        /// 使用场景：
-        /// - 租户注销
-        /// - 测试数据清理
-        /// </summary>
-        public async Task DeleteConfigurationAsync(
-            ITenantIdentity identity,
-            CancellationToken ct = default)
-        {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
-
-            string cacheKey = BuildCacheKey(identity);
-
-            // 1. 清除 L1 缓存
-            _memoryCache.Remove(cacheKey);
-
-            // 2. 删除 Redis 数据
-            await _redisDb.KeyDeleteAsync(cacheKey).ConfigureAwait(false);
-
-            // 3. 发布刷新通知
-            await PublishRefreshNotificationAsync(identity).ConfigureAwait(false);
-        }
 
         /// <summary>
         /// 刷新配置缓存（清除 L1，触发下次请求重新从 Redis 加载）
@@ -470,19 +283,20 @@ namespace NexusContract.Hosting.Configuration
         /// 注意：不会删除 Redis 中的数据，只清除内存缓存
         /// </summary>
         public async Task RefreshAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             CancellationToken ct = default)
         {
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
+            NexusGuard.EnsureNonEmptyString(providerName);
+            NexusGuard.EnsureNonEmptyString(profileId);
 
-            string cacheKey = BuildCacheKey(identity);
+            string cacheKey = BuildCacheKey(providerName, profileId);
 
             // 1. 清除 L1 缓存
             _memoryCache.Remove(cacheKey);
 
             // 2. 发布刷新通知（其他实例收到后清除 L1）
-            await PublishRefreshNotificationAsync(identity).ConfigureAwait(false);
+            await PublishRefreshNotificationAsync(providerName, profileId).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -547,17 +361,18 @@ namespace NexusContract.Hosting.Configuration
         /// <summary>
         /// 发布配置刷新通知（Pub/Sub）
         /// </summary>
-        /// <param name="identity">租户身份</param>
+        /// <param name="providerName">Provider 标识</param>
+        /// <param name="profileId">档案标识</param>
         /// <param name="refreshType">刷新类型（默认：ConfigChange）</param>
         private async Task PublishRefreshNotificationAsync(
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             RefreshType refreshType = RefreshType.ConfigChange)
         {
             string message = JsonSerializer.Serialize(new
             {
-                identity.ProviderName,
-                identity.RealmId,
-                identity.ProfileId,
+                providerName,
+                profileId,
                 Type = refreshType
             });
             await _redisSub.PublishAsync(new RedisChannel(_pubSubChannel, RedisChannel.PatternMode.Literal), message)
@@ -567,39 +382,10 @@ namespace NexusContract.Hosting.Configuration
         /// <summary>
         /// 构建缓存键（单个配置）
         /// </summary>
-        private string BuildCacheKey(ITenantIdentity identity)
+        private string BuildCacheKey(string providerName, string profileId)
         {
-            // 格式: "nexus:config:Alipay:2088123456789012:2021001234567890"
-            return $"{_redisKeyPrefix}{identity.ProviderName}:{identity.RealmId}:{identity.ProfileId}";
-        }
-
-        /// <summary>
-        /// 构建 AppId 组键（用于存储 SysId 下的所有 AppId）
-        /// </summary>
-        /// <summary>
-        /// 构建映射层键名（统一授权/发现层）
-        /// 格式：nxc:map:{realm}:{provider}
-        /// 
-        /// 设计理念（三层模型 - Layer 1）：
-        /// - 职责：授权映射 (Mapping/Auth)
-        /// - 结构：Redis Set
-        /// - 成员：该 Realm 在指定渠道下拥有的所有 ProfileId (AppId/SubMchId)
-        /// - 操作：SISMEMBER (权限校验) + SMEMBERS (配置发现)
-        /// 
-        /// 语义对比：
-        /// - 旧设计：group (分组) + index (索引) → 职责重复
-        /// - 新设计：map (映射) → 单一真相源，既是授权白名单，也是配置集合
-        /// </summary>
-        private string BuildMapKey(string realmId, string providerName)
-        {
-            // 验证必需参数（RealmId 优先）
-            if (string.IsNullOrWhiteSpace(realmId))
-                throw new ArgumentNullException(nameof(realmId), "RealmId cannot be null or empty");
-            if (string.IsNullOrWhiteSpace(providerName))
-                throw new ArgumentNullException(nameof(providerName), "ProviderName cannot be null or empty");
-
-            // 格式: "nxc:map:2088123456789012:Alipay" (RealmId 优先，便于 Redis Cluster 分片)
-            return $"nxc:map:{realmId}:{providerName}";
+            // 格式: "nexus:config:Alipay:2021001234567890"
+            return $"{_redisKeyPrefix}{providerName}:{profileId}";
         }
 
         /// <summary>
@@ -685,15 +471,15 @@ namespace NexusContract.Hosting.Configuration
         /// 
         /// 2. MappingChange（映射关系变更）：
         ///    - 清理单个 ProfileId 的配置缓存
-        ///    - 清理该 Realm 的 map 权限索引
+        ///    - ✅ 映射变更：由于新架构中不再需要权限映射，此逻辑可省略
         /// 
         /// 3. FullRefresh（全量刷新）：
-        ///    - 清理该 Realm 下所有 ProfileId 的配置缓存（遍历）
-        ///    - 清理该 Realm 的 map 权限索引
+        ///    - 清理相关 ProfileId 的配置缓存
+        ///    - ✅ 全量刷新：当前架构中只需清除单个配置缓存
         /// 
         /// 性能收益：
         /// - 密钥轮换（ConfigChange）不再引发 map 缓存失效
-        /// - 500 个 ProfileId 的 Realm，单个配置变更不再影响其他 499 个
+        /// - 500 个 profileId 的配置，单个配置变更不再影响其他 499 个
         /// - 消除缓存雪崩隐患（Redis 压力降低 99.8%）
         /// </summary>
         private void OnConfigRefreshMessage(RedisChannel channel, RedisValue message)
@@ -708,188 +494,39 @@ namespace NexusContract.Hosting.Configuration
                 });
                 if (refreshData == null) return;
 
-                // 验证必需字段（ProviderName 和 RealmId 禁止为空）
+                // 验证必需字段（ProviderName 和 ProfileId 禁止为空）
                 if (string.IsNullOrWhiteSpace(refreshData.ProviderName) || 
-                    string.IsNullOrWhiteSpace(refreshData.RealmId))
+                    string.IsNullOrWhiteSpace(refreshData.ProfileId))
                 {
                     return; // 静默忽略无效消息（缺少必需字段）
                 }
 
-                // 构建租户身份
-                var identity = new ConfigurationContext(
-                    refreshData.ProviderName,
-                    refreshData.RealmId)
-                {
-                    ProfileId = refreshData.ProfileId ?? string.Empty
-                };
-
                 // 策略 1: 始终清除配置实体缓存（精准打击）
-                string cacheKey = BuildCacheKey(identity);
+                string cacheKey = BuildCacheKey(refreshData.ProviderName, refreshData.ProfileId);
                 _memoryCache.Remove(cacheKey); // 同时清除正常缓存和负缓存（NotFoundSentinel）
 
                 // 策略 2: 根据变更类型决定是否清除 map 权限索引（按需打击）
-                string mapKey = BuildMapKey(identity.RealmId, identity.ProviderName);
-                string mapCacheKey = $"map:{mapKey}";
-
+                // 注意：新架构中不再需要权限映射逻辑
                 switch (refreshData.Type)
                 {
                     case RefreshType.ConfigChange:
-                        // 配置变更：不清理 map（性能优化核心）
-                        // 理由：密钥轮换不影响 ProfileId 集合，无需让其他 499 个 ProfileId 重新验证权限
+                        // 配置变更：清除单个配置缓存（已在上面执行）
+                        // 理由：密钥轮换需要立即生效
                         break;
 
                     case RefreshType.MappingChange:
-                        // ✅ Map层：订阅-清除模式（ADR-009 Section 4.5.1）
-                        // 架构修正（2026-01-11）：Map层职责上移到BFF后，BFF可以接受"轻微抖动"
-                        // 简化为删除缓存，下次请求自动触发 ColdStartSyncAsync 回源 Redis
-                        _memoryCache.Remove(mapCacheKey);
-                        
-                        _logger.LogInformation(
-                            "Map cache invalidated for Realm {RealmId}: next request will trigger ColdStartSyncAsync (subscribe-clear mode)",
-                            refreshData.RealmId);
+                        // ✅ 映射变更：由于新架构中不再需要权限映射，此逻辑可省略
                         break;
 
                     case RefreshType.FullRefresh:
-                        // 全量刷新：清理 map + 尝试清理该 Realm 下所有配置（尽力而为）
-                        _memoryCache.Remove(mapCacheKey);
-                        // 注意：无法遍历 MemoryCache 清理所有 ProfileId，依赖滑动过期兜底
+                        // 全量刷新：当前架构中只需清除单个配置缓存（已在上面执行）
                         break;
                 }
             }
             catch
             {
                 // 静默失败（避免 Pub/Sub 异常影响服务稳定性）
-                // 即使消息处理失败，12 小时 TTL 也会自动兜底
-            }
-        }
-
-        /// <summary>
-        /// 冷启动自愈同步（Pull 模式）
-        /// 当 L1 缓存未命中时，通过此方法从 Redis 拉取全量 ProfileId 列表
-        /// 
-        /// 核心机制：
-        /// - 使用 SemaphoreSlim 防止缓存击穿（同一 mapKey 只允许一个线程回源）
-        /// - 实现负缓存策略（空 Set 缓存 5 分钟，防止恶意查询不存在的 Realm）
-        /// - 原子性更新 L1 缓存，与 Push 消息使用相同的缓存策略
-        /// - **500ms 快速失败**：保护老商家，新商家冷启动失败可重试
-        /// </summary>
-        /// <param name="realmId">租户 ID</param>
-        /// <param name="providerName">供应商名称</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>授权的 ProfileId 集合（空集合表示无权限或 Realm 不存在）</returns>
-        /// <exception cref="TimeoutException">冷启动超时（500ms），保护线程池资源</exception>
-        private async Task<HashSet<string>> ColdStartSyncAsync(
-            string realmId,
-            string providerName,
-            CancellationToken ct)
-        {
-            var mapCacheKey = BuildMapKey(realmId, providerName);
-
-            // 第一次 Double-Check：避免并发场景下重复加锁
-            if (_memoryCache.TryGetValue<HashSet<string>>(mapCacheKey, out var cachedSet) 
-                && cachedSet != null)
-            {
-                return cachedSet;
-            }
-
-            // 获取或创建该 mapKey 的专属锁
-            var mapLock = _mapLockDict.GetOrAdd(mapCacheKey, _ => new SemaphoreSlim(1, 1));
-
-            // 🔥 关键：为新商家的冷启动设置 500ms 超时保护
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(TimeSpan.FromMilliseconds(500));
-
-            try
-            {
-                await mapLock.WaitAsync(cts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cts.Token.IsCancellationRequested && !ct.IsCancellationRequested)
-            {
-                // 超时：让新商家的这笔请求失败，保护老商家
-                _logger.LogWarning(
-                    "Cold start lock timeout (500ms) for Realm {RealmId}, request rejected to protect existing tenants",
-                    realmId);
-                
-                throw new TimeoutException(
-                    $"Configuration loading timeout for new tenant '{realmId}'. " +
-                    "Please retry after configuration is pushed to gateway or use manual refresh.");
-            }
-
-            try
-            {
-                // 第二次 Double-Check：持有锁后再次检查缓存
-                if (_memoryCache.TryGetValue<HashSet<string>>(mapCacheKey, out cachedSet) 
-                    && cachedSet != null)
-                {
-                    return cachedSet;
-                }
-
-                // 从 Redis 拉取全量 ProfileId 列表（带超时保护）
-                var redisKey = BuildMapKey(realmId, providerName);
-                
-                // 创建一个限时任务，确保整个 Redis 查询在 450ms 内完成（留 50ms buffer）
-                var redisTask = _redisDb.SetMembersAsync(redisKey);
-                var completedTask = await Task.WhenAny(
-                    redisTask, 
-                    Task.Delay(TimeSpan.FromMilliseconds(450), cts.Token)
-                ).ConfigureAwait(false);
-
-                if (completedTask != redisTask)
-                {
-                    // Redis 查询超时
-                    _logger.LogWarning(
-                        "Cold start Redis timeout (450ms) for Realm {RealmId}, request rejected",
-                        realmId);
-                    
-                    throw new TimeoutException(
-                        $"Redis query timeout for new tenant '{realmId}'. " +
-                        "Please retry or contact administrator to trigger manual refresh.");
-                }
-
-                var profileIdArray = await redisTask.ConfigureAwait(false);
-
-                HashSet<string> newSet;
-                if (profileIdArray.Length == 0)
-                {
-                    // 负缓存：空集合缓存 5 分钟（防止恶意查询）
-                    newSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                    _memoryCache.Set(mapCacheKey, newSet, new MemoryCacheEntryOptions
-                    {
-                        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
-                        Priority = CacheItemPriority.Normal,  // 注意：负缓存使用 Normal 优先级
-                        Size = 1
-                    });
-
-                    _logger.LogWarning(
-                        "Cold start: Realm {RealmId} has no authorized profiles (negative cache for 5 min)",
-                        realmId);
-                }
-                else
-                {
-                    // 正常缓存：使用与 Push 消息相同的策略
-                    newSet = new HashSet<string>(
-                        profileIdArray.Select(v => v.ToString()),
-                        StringComparer.OrdinalIgnoreCase);
-
-                    _memoryCache.Set(mapCacheKey, newSet, new MemoryCacheEntryOptions
-                    {
-                        SlidingExpiration = _l1Ttl,
-                        AbsoluteExpirationRelativeToNow = DefaultL1AbsoluteExpiration,
-                        Priority = CacheItemPriority.NeverRemove,
-                        Size = 1
-                    });
-
-                    _logger.LogInformation(
-                        "Cold start: Map synced for Realm {RealmId}, {Count} profiles loaded",
-                        realmId, newSet.Count);
-                }
-
-                return newSet;
-            }
-            finally
-            {
-                mapLock.Release();
+                // 即使消息处理失败，24 小时 TTL 也会自动兜底
             }
         }
 
@@ -907,13 +544,6 @@ namespace NexusContract.Hosting.Configuration
                 lockItem.Dispose();
             }
             _locks.Clear();
-
-            // 释放 map 锁资源
-            foreach (var lockItem in _mapLockDict.Values)
-            {
-                lockItem.Dispose();
-            }
-            _mapLockDict.Clear();
         }
 
         /// <summary>
@@ -922,17 +552,16 @@ namespace NexusContract.Hosting.Configuration
         /// 变更类型说明：
         /// - ConfigChange: 配置变更（密钥轮换、网关地址修改等）→ 仅清理该 ProfileId 的配置缓存
         /// - MappingChange: 映射关系变更（新增/删除 ProfileId）→ 清理配置缓存 + map 权限索引
-        /// - FullRefresh: 全量刷新（极少使用，如数据迁移）→ 清理该 Realm 下所有缓存
+        /// - FullRefresh: 全量刷新（极少使用，如数据迁移）→ 清理相关配置缓存
         /// 
         /// 原子替换策略（ADR-009）：
-        /// - AuthorizedProfileIds: 携带该 Realm 下的全量 ProfileId 列表
+        /// - AuthorizedProfileIds: 携带相关 ProfileId 列表
         /// - 用于原子替换内存中的 HashSet，避免"删除-加载"之间的空窗期
         /// - 消除高并发场景下的缓存击穿风险
         /// </summary>
         private sealed class RefreshMessage
         {
             public string? ProviderName { get; set; }
-            public string? RealmId { get; set; }
             public string? ProfileId { get; set; }
 
             /// <summary>
@@ -959,13 +588,13 @@ namespace NexusContract.Hosting.Configuration
             ConfigChange = 0,
 
             /// <summary>
-            /// 映射关系变更（影响 Realm 下的 ProfileId 集合）
+            /// 映射关系变更（影响相关 ProfileId 集合）
             /// 示例：新增 AppId、删除 AppId、解绑操作
             /// </summary>
             MappingChange = 1,
 
             /// <summary>
-            /// 全量刷新（影响整个 Realm）
+            /// 全量刷新（影响相关配置）
             /// 示例：数据迁移、运维操作
             /// </summary>
             FullRefresh = 2

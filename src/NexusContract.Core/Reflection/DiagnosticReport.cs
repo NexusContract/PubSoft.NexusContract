@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using NexusContract.Abstractions.Exceptions;
 
 namespace NexusContract.Core.Reflection
 {
@@ -24,13 +25,13 @@ namespace NexusContract.Core.Reflection
 
         public void Add(ContractDiagnostic diagnostic)
         {
-            if (diagnostic == null) throw new ArgumentNullException(nameof(diagnostic));
+            NexusGuard.EnsurePhysicalAddress(diagnostic);
             _diagnostics.Add(diagnostic);
         }
 
         public void AddRange(IEnumerable<ContractDiagnostic> diagnostics)
         {
-            if (diagnostics == null) throw new ArgumentNullException(nameof(diagnostics));
+            NexusGuard.EnsurePhysicalAddress(diagnostics);
             _diagnostics.AddRange(diagnostics);
         }
 
@@ -39,7 +40,7 @@ namespace NexusContract.Core.Reflection
         /// </summary>
         public void Merge(DiagnosticReport other)
         {
-            if (other == null) throw new ArgumentNullException(nameof(other));
+            NexusGuard.EnsurePhysicalAddress(other);
             _diagnostics.AddRange(other.Diagnostics);
             SuccessCount += other.SuccessCount;
         }

@@ -6,6 +6,7 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Net.Http;
+using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Policies;
 
 namespace NexusContract.Client
@@ -36,11 +37,10 @@ namespace NexusContract.Client
         /// </summary>
         public NexusGatewayClient CreateClient(string operationKey, HttpClient httpClient)
         {
-            if (string.IsNullOrWhiteSpace(operationKey))
-                throw new ArgumentException("Operation key cannot be null or empty", nameof(operationKey));
+NexusGuard.EnsureNonEmptyString(operationKey);
 
             if (httpClient == null)
-                throw new ArgumentNullException(nameof(httpClient));
+                NexusGuard.EnsurePhysicalAddress(httpClient);
 
             // 点分标识符解析（如 "allinpay.yunst" → "allinpay"）
             string providerKey = operationKey.Split('.')[0];
@@ -71,11 +71,10 @@ namespace NexusContract.Client
             /// </summary>
             public Builder RegisterGateway(string providerKey, Uri gatewayUri)
             {
-                if (string.IsNullOrWhiteSpace(providerKey))
-                    throw new ArgumentException("Provider key cannot be null or empty", nameof(providerKey));
+NexusGuard.EnsureNonEmptyString(providerKey);
 
                 if (gatewayUri == null)
-                    throw new ArgumentNullException(nameof(gatewayUri));
+                    NexusGuard.EnsurePhysicalAddress(gatewayUri);
 
                 _gatewayMap[providerKey] = gatewayUri;
                 return this;
@@ -99,8 +98,7 @@ namespace NexusContract.Client
             /// </summary>
             public NexusGatewayClientFactory Build()
             {
-                if (_gatewayMap.Count == 0)
-                    throw new InvalidOperationException("At least one gateway must be registered");
+                NexusGuard.EnsureMinCount(_gatewayMap);
 
                 return new NexusGatewayClientFactory(
                     _gatewayMap.ToFrozenDictionary());

@@ -20,7 +20,7 @@ namespace NexusContract.Core.Engine
     /// 1. JIT 配置加载：通过 IConfigurationResolver 动态加载租户配置
     /// 2. Provider 路由：根据配置中的实现标签选择 Provider
     /// 3. 请求执行：调用 Provider.ExecuteAsync 执行业务逻辑
-    /// 4. 异常处理：统一异常转换（NexusTenantException, NexusGatewayException）
+    /// 4. 异常处理：统一异常转换（ContractIncompleteException, NexusGatewayException）
     /// 
     /// 路由策略（配置驱动，优先级从高到低）：
     /// 1. 配置实现标签：settings.ExtendedSettings["ImplementationName"]（如 "Alipay.Cert" / "Alipay.RSA"）
@@ -59,10 +59,16 @@ namespace NexusContract.Core.Engine
     /// 构造 NexusEngine
     /// </remarks>
     /// <param name="configResolver">配置解析器</param>
-    public sealed class NexusEngine(IConfigurationResolver configResolver) : INexusEngine
+    public sealed class NexusEngine : INexusEngine
     {
-        private readonly IConfigurationResolver _configResolver = configResolver ?? throw new ArgumentNullException(nameof(configResolver));
+        private readonly IConfigurationResolver _configResolver;
         private readonly ConcurrentDictionary<string, IProvider> _providerRegistry = new ConcurrentDictionary<string, IProvider>(StringComparer.OrdinalIgnoreCase);
+
+        public NexusEngine(IConfigurationResolver configResolver)
+        {
+            NexusGuard.EnsurePhysicalAddress(configResolver);
+            _configResolver = configResolver;
+        }
 
         /// <summary>
         /// 注册 Provider
@@ -71,10 +77,8 @@ namespace NexusContract.Core.Engine
         /// <param name="provider">Provider 实例</param>
         public void RegisterProvider(string providerName, IProvider provider)
         {
-            if (string.IsNullOrWhiteSpace(providerName))
-                throw new ArgumentNullException(nameof(providerName));
-            if (provider == null)
-                throw new ArgumentNullException(nameof(provider));
+            NexusGuard.EnsureNonEmptyString(providerName);
+            NexusGuard.EnsurePhysicalAddress(provider);
 
             _providerRegistry[providerName] = provider;
         }
@@ -93,33 +97,34 @@ namespace NexusContract.Core.Engine
         }
 
         /// <summary>
-        /// 执行多租户请求
+        /// 执行多租户请求（显式参数）
         /// </summary>
         /// <typeparam name="TResponse">响应类型</typeparam>
         /// <param name="request">API 请求</param>
-        /// <param name="identity">租户身份标识</param>
+        /// <param name="providerName">提供商名称</param>
+        /// <param name="profileId">配置文件 ID（必填，禁止自动补全）</param>
         /// <param name="ct">取消令牌</param>
         /// <returns>API 响应</returns>
         public async Task<TResponse> ExecuteAsync<TResponse>(
             IApiRequest<TResponse> request,
-            ITenantIdentity identity,
+            string providerName,
+            string profileId,
             CancellationToken ct = default)
             where TResponse : class, new()
         {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request));
-            if (identity == null)
-                throw new ArgumentNullException(nameof(identity));
+            NexusGuard.EnsurePhysicalAddress(request);
+            NexusGuard.EnsureNonEmptyString(providerName);
+            NexusGuard.EnsureNonEmptyString(profileId);
 
             try
             {
                 // 1. JIT 配置加载（先加载配置，配置决定后续路由）
-                var configuration = await _configResolver.ResolveAsync(identity, ct)
+                var configuration = await _configResolver.ResolveAsync(providerName, profileId, ct)
                     .ConfigureAwait(false);
 
                 // 2. Provider 路由（基于配置的实现标签动态决策）
-                string providerKey = ResolveImplementationName(identity, configuration);
-                var provider = GetProvider(providerKey);
+                string implementationKey = ResolveImplementationName(providerName, configuration);
+                var provider = GetProvider(implementationKey);
 
                 // 3. 执行请求
                 var response = await provider.ExecuteAsync<TResponse>(request, configuration, ct)
@@ -127,16 +132,13 @@ namespace NexusContract.Core.Engine
 
                 return response;
             }
-            catch (NexusTenantException)
+            catch (Exception ex) when (!(ex is ArgumentNullException))
             {
-                // 租户异常：直接抛出
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // 未知异常：包装为租户异常
-                throw new NexusTenantException(
-                    $"Request execution failed: {ex.Message}",
+                // 未知异常：包装为 ContractIncompleteException
+                throw new ContractIncompleteException(
+                    nameof(NexusEngine),
+                    ContractDiagnosticRegistry.NXC201,
+                    $"Request execution failed for profileId '{profileId}' on provider '{providerName}': {ex.Message}",
                     ex);
             }
         }
@@ -146,7 +148,7 @@ namespace NexusContract.Core.Engine
         /// 
         /// 策略：
         /// 1. 优先读取配置中的 ImplementationName（如 "Alipay.Cert"）
-        /// 2. 回退到身份标识中的 ProviderName（如 "Alipay"）
+        /// 2. 回退到方法参数中的 providerName（如 "Alipay"）
         /// 
         /// 使用场景：
         /// - 同一渠道多版本并存：
@@ -158,11 +160,11 @@ namespace NexusContract.Core.Engine
         ///   * Alipay.Sandbox（沙箱环境）
         ///   * Alipay.Production（生产环境）
         /// </summary>
-        /// <param name="identity">租户身份标识</param>
+        /// <param name="providerName">提供商名称</param>
         /// <param name="configuration">已加载的配置</param>
         /// <returns>Provider 实现名称</returns>
         private string ResolveImplementationName(
-            ITenantIdentity identity,
+            string providerName,
             IProviderConfiguration configuration)
         {
             // 策略 1: 配置中的具体实现标识（优先级最高）
@@ -174,16 +176,15 @@ namespace NexusContract.Core.Engine
             }
 
             // 策略 2: 回退到基础渠道名称
-            // 例如：identity.ProviderName = "Alipay"
-            if (!string.IsNullOrWhiteSpace(identity.ProviderName))
+            // 例如：providerName = "Alipay"
+            if (!string.IsNullOrWhiteSpace(providerName))
             {
-                return identity.ProviderName;
+                return providerName;
             }
 
-            // 所有策略失败：抛出异常
-            throw NexusTenantException.InvalidIdentifier(
-                "ProviderName",
-                "Cannot resolve ImplementationName from configuration or identity");
+            // 所有策略失败：视为缺失实现名（物理寻址缺失），由 NexusGuard 抛出 NXC
+            NexusGuard.EnsureNonEmptyString(providerName);
+            throw new InvalidOperationException("Cannot resolve ImplementationName from configuration or providerName");
         }
 
         /// <summary>

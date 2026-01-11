@@ -28,9 +28,13 @@ namespace NexusContract.Core.Reflection
             string? propertyPath = null,
             params object[] contextArgs)
         {
-            ContractName = contractName ?? throw new ArgumentNullException(nameof(contractName));
-            ErrorCode = errorCode ?? throw new ArgumentNullException(nameof(errorCode));
-            Message = message ?? throw new ArgumentNullException(nameof(message));
+            NexusGuard.EnsureNonEmptyString(contractName);
+            NexusGuard.EnsureNonEmptyString(errorCode);
+            NexusGuard.EnsureNonEmptyString(message);
+            
+            ContractName = contractName;
+            ErrorCode = errorCode;
+            Message = message;
             Severity = severity;
             PropertyName = propertyName;
             PropertyPath = propertyPath;

@@ -126,7 +126,7 @@ namespace NexusContract.Core.Reflection
             Abstractions.Security.IEncryptor? encryptor = null,
             Abstractions.Security.IDecryptor? decryptor = null)
         {
-            if (types == null) throw new ArgumentNullException(nameof(types));
+            NexusGuard.EnsurePhysicalAddress(types);
 
             var globalReport = new DiagnosticReport();
 

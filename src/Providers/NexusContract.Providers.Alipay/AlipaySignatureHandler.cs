@@ -10,6 +10,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+using NexusContract.Abstractions.Exceptions;
+
 namespace NexusContract.Providers.Alipay
 {
     /// <summary>
@@ -19,9 +21,15 @@ namespace NexusContract.Providers.Alipay
     /// 1. 自动为出向请求计算并添加 RSA2 签名到 Authorization 头。
     /// 2. 自动为入向响应验证签名。
     /// </summary>
-    public class AlipaySignatureHandler(AlipayProviderConfig config) : DelegatingHandler
+    public class AlipaySignatureHandler : DelegatingHandler
     {
-        private readonly AlipayProviderConfig _config = config ?? throw new ArgumentNullException(nameof(config));
+        private readonly AlipayProviderConfig _config;
+
+        public AlipaySignatureHandler(AlipayProviderConfig config)
+        {
+            NexusGuard.EnsurePhysicalAddress(config);
+            _config = config;
+        }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
