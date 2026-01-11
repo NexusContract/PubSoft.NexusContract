@@ -70,6 +70,62 @@ namespace NexusContract.Core.Utilities
             return !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
         }
     }
+
+    /// <summary>
+    /// 【优化 D-102】System.Type 扩展方法
+    /// 
+    /// 目标：提高代码可读性，使用链式调用而非静态方法
+    /// 
+    /// 改进前：
+    ///     if (TypeUtilities.IsComplexType(propertyType) &amp;&amp; !TypeUtilities.IsCollectionType(propertyType))
+    ///     
+    /// 改进后（自然语言风格）：
+    ///     if (propertyType.IsComplexType() &amp;&amp; !propertyType.IsCollectionType())
+    /// </summary>
+    public static class TypeExtensions
+    {
+        /// <summary>
+        /// 判断该类型是否为复杂类型（对象或自定义 POCO）
+        /// </summary>
+        public static bool IsComplexType(this Type type)
+            => TypeUtilities.IsComplexType(type);
+
+        /// <summary>
+        /// 判断该类型是否为集合类型
+        /// </summary>
+        public static bool IsCollectionType(this Type type)
+            => TypeUtilities.IsCollectionType(type);
+
+        /// <summary>
+        /// 判断该类型是否可为 null
+        /// </summary>
+        public static bool IsNullable(this Type type)
+            => TypeUtilities.IsNullable(type);
+
+        /// <summary>
+        /// 判断该类型是否为基元类型或字符串（简单类型）
+        /// </summary>
+        public static bool IsSimpleType(this Type type)
+            => !IsComplexType(type);
+
+        /// <summary>
+        /// 判断该类型是否为值类型
+        /// </summary>
+        public static bool IsValueType(this Type type)
+            => type.IsValueType;
+
+        /// <summary>
+        /// 获取可为 null 的基础类型（如果是 Nullable&lt;T&gt;）
+        /// </summary>
+        public static Type GetNullableUnderlyingType(this Type type)
+            => Nullable.GetUnderlyingType(type) ?? type;
+
+        /// <summary>
+        /// 判断该类型是否为可为 null 的值类型（Nullable&lt;T&gt;）
+        /// </summary>
+        public static bool IsNullableValueType(this Type type)
+            => Nullable.GetUnderlyingType(type) != null;
+    }
 }
 
 

@@ -10,7 +10,6 @@ using NexusContract.Abstractions.Configuration;
 using NexusContract.Abstractions.Exceptions;
 using NexusContract.Abstractions.Policies;
 using NexusContract.Abstractions.Security;
-using NexusContract.Core.Hydration.Compilers;
 using NexusContract.Core.Reflection;
 using NexusContract.Core.Utilities;
 
@@ -47,10 +46,8 @@ namespace NexusContract.Core.Hydration
         /// <summary>
         /// 将 Dictionary 回填到强类型 Response
         /// 
-        /// 性能优化策略：三层缓存
-        /// 1. 预编译 IL 委托（HydrationCompiler）：&lt;200μs，零反射
-        /// 2. Expression Tree 委托：~50μs，减少反射
-        /// 3. 反射回填（Fallback）：~1-5ms，支持复杂场景
+        /// 设计哲学：清爽反射回填，带完整诊断
+        /// 性能：1-10ms（反射），在网络延迟 100-500ms 背景下完全可以忽略
         /// </summary>
         public T Hydrate<T>(IDictionary<string, object> source) where T : new()
         {
@@ -58,15 +55,21 @@ namespace NexusContract.Core.Hydration
 
             try
             {
-                // 【性能第一档】预编译 IL 委托（宪法 007：零反射引擎）
-                // 性能：&lt;200μs，缓存命中率 &gt;99%
-                var hydrator = HydrationCompiler.Compile<T>();
-                return hydrator(source, _namingPolicy, _decryptor!);
-            }
-            catch
-            {
-                // Fallback：反射路径支持复杂场景（解密、类型转换、集合、递归）
                 return (T)HydrateInternal(typeof(T), source, 0);
+            }
+            catch (ContractIncompleteException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new ContractIncompleteException(
+                    typeof(T).FullName ?? typeof(T).Name ?? "Unknown",
+                    ContractDiagnosticRegistry.NXC301,
+                    typeof(T).Name ?? "Unknown",
+                    $"Hydration failed: {ex.Message}",
+                    ex
+                );
             }
         }
 
@@ -237,25 +240,25 @@ namespace NexusContract.Core.Hydration
         /// <summary>
         /// 强力类型转换器（终结三方 API 的类型混乱）
         /// 
-        /// 宪法 007 实现：通过 RobustConvertCompiler 动态生成 IL 代码
-        /// 性能：&lt;100ns（vs. ~50-100μs 反射路径）
+        /// 设计哲学：清爽反射版本，带完整的诊断能力
+        /// 性能：1-10μs（反射），在网络延迟 100-500ms 背景下完全可以忽略
         /// </summary>
         private object RobustConvert(object value, Type targetType, PropertyMetadata pm)
         {
             try
             {
-                // 处理 Nullable<T>
-                var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
-
-                // 1. 同类型直接返回
-                if (underlyingType.IsInstanceOfType(value))
-                    return value;
-
-                // 【性能优化】使用编译的类型转换委托
-                var converter = RobustConvertCompiler.Compile(underlyingType);
-                return converter(value, underlyingType);
+                return Hydration.RobustConvert.ConvertValue(
+                    value,
+                    targetType,
+                    pm.PropertyInfo.Name,
+                    pm.PropertyInfo.DeclaringType?.Name ?? "Unknown"
+                );
             }
-            catch
+            catch (ContractIncompleteException)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 // NXC302: 类型转换失败，精准告知现场
                 string declaringTypeName = pm.PropertyInfo.DeclaringType?.FullName ?? pm.PropertyInfo.DeclaringType?.Name ?? "Unknown";
@@ -263,10 +266,9 @@ namespace NexusContract.Core.Hydration
                 throw new ContractIncompleteException(
                     declaringTypeName,
                     ContractDiagnosticRegistry.NXC302,
-                    declaringTypeShortName,
                     pm.PropertyInfo.Name ?? "Unknown",
-                    targetType.Name ?? "Unknown",
-                    value
+                    $"Failed to convert to {targetType.Name}: {ex.Message}",
+                    ex
                 );
             }
         }
