@@ -11,7 +11,7 @@ using NexusContract.Abstractions.Exceptions;
 namespace NexusContract.Hosting.Security
 {
     /// <summary>
-    /// AES256 安全提供程序：高性能对称加密
+    /// AES256 敏感数据保护器：高性能对称加密
     /// 
     /// 算法特征：
     /// - 加密算法：AES256-CBC
@@ -30,10 +30,14 @@ namespace NexusContract.Hosting.Security
     /// - 单一标准：所有加密数据存储为 Base64 编码的密文，密钥升级通过运维脚本完成数据迁移（代码不参与版本判断）
     /// 
     /// 使用场景：
-    /// - Redis L2 缓存中的 PrivateKey 加密
-    /// - 配置文件中的敏感字段加密
+    /// - Redis L2 缓存中的敏感数据保护（私钥、密钥、配置）
+    /// - 配置序列化时的透明保护
+    /// 
+    /// 宪法依据：
+    /// - 宪法 011（单一标准加密）：AES256-CBC + Base64
+    /// - 宪法 012（诊断主权）：保护失败抛出结构化异常
     /// </summary>
-    public sealed class AesSecurityProvider : ISecurityProvider
+    public sealed class AesSecurityProvider : ISecretProtector
     {
         private readonly byte[] _masterKey;
 
@@ -51,9 +55,9 @@ namespace NexusContract.Hosting.Security
         }
 
         /// <summary>
-        /// 加密明文
+        /// 保护敏感数据（加密）
         /// </summary>
-        public string Encrypt(string plainText)
+        public string Protect(string plainText)
         {
             if (string.IsNullOrEmpty(plainText))
                 return string.Empty;
@@ -77,18 +81,18 @@ namespace NexusContract.Hosting.Security
         }
 
         /// <summary>
-        /// 解密密文
+        /// 恢复敏感数据（解密）
         /// </summary>
-        public string Decrypt(string cipherText)
+        public string Unprotect(string protectedText)
         {
-            if (string.IsNullOrEmpty(cipherText))
+            if (string.IsNullOrEmpty(protectedText))
                 return string.Empty;
 
             // 单一标准：直接作为 Base64 编码的 [IV+密文]
-            byte[] fullCipher = Convert.FromBase64String(cipherText);
+            byte[] fullCipher = Convert.FromBase64String(protectedText);
 
             if (fullCipher.Length < 16)
-                throw new CryptographicException("Invalid cipher text: too short");
+                throw new CryptographicException("Invalid protected text: too short");
 
             using Aes aes = Aes.Create();
             aes.Key = _masterKey;

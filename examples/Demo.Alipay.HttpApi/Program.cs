@@ -29,10 +29,10 @@ string redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?
 var redis = ConnectionMultiplexer.Connect(redisConnectionString);
 builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
-// ==================== 步骤2：注册安全提供者（AES加密/解密 PrivateKey） ====================
+// ==================== 步骤2：注册敏感数据保护器（AES加密/解密配置敏感信息） ====================
 string masterKey = builder.Configuration["Security:MasterKey"] ?? "DEMO-MASTER-KEY-32-BYTES-LONG!"; // 生产环境必须从安全存储加载
-var securityProvider = new AesSecurityProvider(masterKey);
-builder.Services.AddSingleton<ISecurityProvider>(securityProvider);
+var secretProtector = new AesSecurityProvider(masterKey);
+builder.Services.AddSingleton<ISecretProtector>(secretProtector);
 
 // ==================== 步骤3：注册配置解析器（L1 MemoryCache + L2 Redis + L3 Database） ====================
 var memoryCache = new MemoryCache(new MemoryCacheOptions());
@@ -44,7 +44,7 @@ builder.Services.AddSingleton<IConfigurationResolver>(sp =>
     new HybridConfigResolver(
         sp.GetRequiredService<IConnectionMultiplexer>(),
         sp.GetRequiredService<IMemoryCache>(),
-        sp.GetRequiredService<ISecurityProvider>(),
+        sp.GetRequiredService<ISecretProtector>(),
         sp.GetRequiredService<ILogger<HybridConfigResolver>>(),
         redisKeyPrefix: null,
         l1Ttl: TimeSpan.FromMinutes(5),

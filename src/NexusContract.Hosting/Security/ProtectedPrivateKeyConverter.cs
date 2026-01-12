@@ -31,29 +31,29 @@ namespace NexusContract.Hosting.Security
     /// - 传输加密：Redis 连接使用 TLS
     /// </summary>
     /// <remarks>
-    /// 构造加密转换器
+    /// 构造敏感字段保护转换器
     /// </remarks>
-    /// <param name="securityProvider">安全提供程序（从 DI 容器注入）</param>
-    public sealed class ProtectedPrivateKeyConverter(ISecurityProvider securityProvider) : JsonConverter<string>
+    /// <param name="secretProtector">敏感数据保护器（从 DI 容器注入）</param>
+    public sealed class ProtectedPrivateKeyConverter(ISecretProtector secretProtector) : JsonConverter<string>
     {
-        private readonly ISecurityProvider _securityProvider;
+        private readonly ISecretProtector _secretProtector;
 
         /// <summary>
-        /// 反序列化（从 Redis 读取时解密）
+        /// 反序列化（从 Redis 读取时恢复）
         /// </summary>
         public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            string? encryptedValue = reader.GetString();
+            string? protectedValue = reader.GetString();
 
-            if (string.IsNullOrWhiteSpace(encryptedValue))
+            if (string.IsNullOrWhiteSpace(protectedValue))
                 return string.Empty;
 
-            // 从 Redis 读出时：解密
-            return _securityProvider.Decrypt(encryptedValue);
+            // 从 Redis 读出时：恢复（解密）
+            return _secretProtector.Unprotect(protectedValue);
         }
 
         /// <summary>
-        /// 序列化（写入 Redis 时加密）
+        /// 序列化（写入 Redis 时保护）
         /// </summary>
         public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
         {
@@ -63,9 +63,9 @@ namespace NexusContract.Hosting.Security
                 return;
             }
 
-            // 写入 Redis 时：加密
-            string encryptedValue = _securityProvider.Encrypt(value);
-            writer.WriteStringValue(encryptedValue);
+            // 写入 Redis 时：保护（加密）
+            string protectedValue = _secretProtector.Protect(value);
+            writer.WriteStringValue(protectedValue);
         }
     }
 }

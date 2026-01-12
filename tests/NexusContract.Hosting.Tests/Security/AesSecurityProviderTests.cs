@@ -69,7 +69,7 @@ public class AesSecurityProviderTests
     }
 
     [Fact]
-    public void Encrypt_ValidInput_ShouldReturnBase64Cipher()
+    public void Protect_ValidInput_ShouldReturnBase64Cipher()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -77,29 +77,29 @@ public class AesSecurityProviderTests
         string plainText = "test-private-key-12345";
 
         // Act
-        string encrypted = provider.Encrypt(plainText);
+        string protected_ = provider.Protect(plainText);
 
         // Assert
-        Assert.DoesNotContain(':', encrypted);
-        Assert.NotEqual(plainText, encrypted);
+        Assert.DoesNotContain(':', protected_);
+        Assert.NotEqual(plainText, protected_);
     }
 
     [Fact]
-    public void Encrypt_EmptyString_ShouldReturnEmptyString()
+    public void Protect_EmptyString_ShouldReturnEmptyString()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var provider = new AesSecurityProvider(masterKey);
 
         // Act
-        string encrypted = provider.Encrypt(string.Empty);
+        string protected_ = provider.Protect(string.Empty);
 
         // Assert
-        Assert.Equal(string.Empty, encrypted);
+        Assert.Equal(string.Empty, protected_);
     }
 
     [Fact]
-    public void Decrypt_ValidCipherText_ShouldReturnOriginalPlainText()
+    public void Unprotect_ValidCipherText_ShouldReturnOriginalPlainText()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -107,29 +107,29 @@ public class AesSecurityProviderTests
         string originalPlainText = "my-secret-private-key-2024";
 
         // Act
-        string encrypted = provider.Encrypt(originalPlainText);
-        string decrypted = provider.Decrypt(encrypted);
+        string protected_ = provider.Protect(originalPlainText);
+        string unprotected = provider.Unprotect(protected_);
 
         // Assert
-        Assert.Equal(originalPlainText, decrypted);
+        Assert.Equal(originalPlainText, unprotected);
     }
 
     [Fact]
-    public void Decrypt_EmptyString_ShouldReturnEmptyString()
+    public void Unprotect_EmptyString_ShouldReturnEmptyString()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var provider = new AesSecurityProvider(masterKey);
 
         // Act
-        string decrypted = provider.Decrypt(string.Empty);
+        string unprotected = provider.Unprotect(string.Empty);
 
         // Assert
-        Assert.Equal(string.Empty, decrypted);
+        Assert.Equal(string.Empty, unprotected);
     }
 
     [Fact]
-    public void Decrypt_InvalidBase64_ShouldThrow()
+    public void Unprotect_InvalidBase64_ShouldThrow()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -139,11 +139,11 @@ public class AesSecurityProviderTests
         // Act & Assert
         // InvalidBase64 throws FormatException (from Convert.FromBase64String)
         Assert.Throws<FormatException>(() =>
-            provider.Decrypt(invalidCipher));
+            provider.Unprotect(invalidCipher));
     }
 
     [Fact]
-    public void Decrypt_TooShortCipherText_ShouldThrow()
+    public void Unprotect_TooShortCipherText_ShouldThrow()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -152,11 +152,11 @@ public class AesSecurityProviderTests
 
         // Act & Assert
         Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
-            provider.Decrypt(tooShort));
+            provider.Unprotect(tooShort));
     }
 
     [Fact]
-    public void Encrypt_SameInputTwice_ShouldProduceDifferentCipherTexts()
+    public void Protect_SameInputTwice_ShouldProduceDifferentProtectedTexts()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -164,19 +164,19 @@ public class AesSecurityProviderTests
         string plainText = "determinism-test-input";
 
         // Act
-        string encrypted1 = provider.Encrypt(plainText);
-        string encrypted2 = provider.Encrypt(plainText);
+        string protected1 = provider.Protect(plainText);
+        string protected2 = provider.Protect(plainText);
 
-        // Assert - Different IV means different ciphertexts
-        Assert.NotEqual(encrypted1, encrypted2);
+        // Assert - Different IV means different protected texts
+        Assert.NotEqual(protected1, protected2);
 
-        // But both should decrypt to the same plaintext
-        Assert.Equal(plainText, provider.Decrypt(encrypted1));
-        Assert.Equal(plainText, provider.Decrypt(encrypted2));
+        // But both should unprotect to the same plaintext
+        Assert.Equal(plainText, provider.Unprotect(protected1));
+        Assert.Equal(plainText, provider.Unprotect(protected2));
     }
 
     [Fact]
-    public void Encrypt_Decrypt_LongInput_ShouldSucceed()
+    public void Protect_Unprotect_LongInput_ShouldSucceed()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -184,15 +184,15 @@ public class AesSecurityProviderTests
         string longPlainText = new string('A', 2048); // 2KB private key
 
         // Act
-        string encrypted = provider.Encrypt(longPlainText);
-        string decrypted = provider.Decrypt(encrypted);
+        string protected_ = provider.Protect(longPlainText);
+        string unprotected = provider.Unprotect(protected_);
 
         // Assert
-        Assert.Equal(longPlainText, decrypted);
+        Assert.Equal(longPlainText, unprotected);
     }
 
     [Fact]
-    public void Decrypt_WrongKey_ShouldThrow()
+    public void Unprotect_WrongKey_ShouldThrow()
     {
         // Arrange
         string masterKey1 = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -202,10 +202,10 @@ public class AesSecurityProviderTests
         string plainText = "secret-data";
 
         // Act
-        string encrypted = provider1.Encrypt(plainText);
+        string protected_ = provider1.Protect(plainText);
 
-        // Assert - Decrypting with wrong key should fail
+        // Assert - Unprotecting with wrong key should fail
         Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
-            provider2.Decrypt(encrypted));
+            provider2.Unprotect(protected_));
     }
 }

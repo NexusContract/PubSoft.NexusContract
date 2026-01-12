@@ -63,7 +63,7 @@ namespace NexusContract.Hosting.Configuration
         private readonly IDatabase _redisDb;
         private readonly ISubscriber _redisSub;
         private readonly IMemoryCache _memoryCache;
-        private readonly ISecurityProvider _securityProvider;
+        private readonly ISecretProtector _secretProtector;
         private readonly ILogger<HybridConfigResolver> _logger;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks;
         private readonly string _redisKeyPrefix;
@@ -158,7 +158,7 @@ namespace NexusContract.Hosting.Configuration
         public HybridConfigResolver(
             IConnectionMultiplexer redis,
             IMemoryCache memoryCache,
-            ISecurityProvider securityProvider,
+            ISecretProtector secretProtector,
             ILogger<HybridConfigResolver> logger,
             string? redisKeyPrefix = null,
             TimeSpan? l1Ttl = null,
@@ -166,12 +166,12 @@ namespace NexusContract.Hosting.Configuration
         {
             NexusGuard.EnsurePhysicalAddress(redis);
             NexusGuard.EnsurePhysicalAddress(memoryCache);
-            NexusGuard.EnsurePhysicalAddress(securityProvider);
+            NexusGuard.EnsurePhysicalAddress(secretProtector);
             NexusGuard.EnsurePhysicalAddress(logger);
 
             _redis = redis;
             _memoryCache = memoryCache;
-            _securityProvider = securityProvider;
+            _secretProtector = secretProtector;
             _logger = logger;
             _redisDb = redis.GetDatabase();
             _redisSub = redis.GetSubscriber();
@@ -455,8 +455,8 @@ namespace NexusContract.Hosting.Configuration
                 PropertyNameCaseInsensitive = true
             };
 
-            // 注入加密转换器（仅对 PrivateKey 和 PublicKey 字段生效）
-            options.Converters.Add(new ProtectedPrivateKeyConverter(_securityProvider));
+            // 注入敏感数据保护转换器（对 PrivateKey 和其他敏感字段生效）
+            options.Converters.Add(new ProtectedPrivateKeyConverter(_secretProtector));
 
             return options;
         }
