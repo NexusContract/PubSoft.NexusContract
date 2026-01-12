@@ -33,6 +33,26 @@ namespace NexusContract.Core.Reflection
     /// 5. NXC105: 检测循环引用（防止无限递归）
     /// 6. NXC106: 加密字段必须显式锁定 Name（禁止 NamingPolicy 猜测）
     /// 7. NXC107: 嵌套对象必须显式路径锁定（第 2 层及以上需要 [ApiField] 的 Name）
+    /// 
+    /// 三级阶梯策略（约定优于配置 vs 显式主权）：
+    /// ============================================
+    /// 【第 1 层 - 约定】普通字段自动推导：
+    ///   - 规则：无 [ApiField] 的字段 → 自动用 INamingPolicy 转换名称（如 OutTradeNo → out_trade_no）
+    ///   - 减负：开发者无需为每个字段加注解，框架内化 80% 的工作
+    ///   - 宪法：遵循 CoC（约定优于配置）原则
+    /// 
+    /// 【第 2 层 - 强制】特定条件必须显式标注：
+    ///   - 【强制一】加密字段 ([Encrypt] = true) 必须有 [ApiField(Name = "...")] 
+    ///     理由：加密意味着"历史属性"，属性重构会导致旧数据解密失败、三方对接崩坏 (宪法 011)
+    ///   - 【强制二】复杂对象在第 2+ 层必须有 [ApiField(Name = "...")] 
+    ///     理由：嵌套递归需要明确的路径边界，防止"反射黑洞"和深度爆炸 (宪法 001)
+    ///   - 【强制三】非标命名字段（如 sys_auth_token_v2_tmp）必须显式映射
+    ///     理由：宪法 009 协议主权，明确三方字段的意图
+    /// 
+    /// 【第 3 层 - 防御】启动期命名映射表：
+    ///   - 生成全量的"约定推导映射"
+    ///   - 防止不同 Provider 使用不同命名规范导致的歧义
+    ///   - 宪法 012 诊断主权：任何冲突都应被明确检测和报告
     /// </summary>
     public static class ContractValidator
     {
@@ -119,6 +139,13 @@ namespace NexusContract.Core.Reflection
 
         /// <summary>
         /// 递归验证字段和深度约束（诊断模式，带路径追踪）
+        /// 
+        /// 三级阶梯策略（约定优于配置 vs 显式主权）：
+        /// 1. 基础层（约定）：无 [ApiField] 的普通字段 → 自动推导（INamingPolicy），无需强制
+        /// 2. 约束层（强制）：有 [ApiField] 但条件不满足：
+        ///    - 加密字段必须显式锁定 Name（NXC106）
+        ///    - 复杂对象在 2+ 层必须显式锁定 Name（NXC107）
+        /// 3. 防御层（推导表）：启动时生成全量命名映射，防止 Provider 间歧义
         /// </summary>
         private static void ValidateFieldsRecursive(
             Type type,
@@ -151,13 +178,20 @@ namespace NexusContract.Core.Reflection
             var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
             foreach (var prop in properties)
             {
+                Type propType = GetEffectiveType(prop.PropertyType);
+
+                // 基元类型和字符串：无需 [ApiField]，自动推导
+                if (propType.IsPrimitive || propType == typeof(string) || typeof(IDictionary).IsAssignableFrom(propType))
+                    continue;
+
+                // 复杂对象：需要特殊处理
+                bool isComplexType = TypeUtilities.IsComplexType(propType);
                 var fieldAttr = prop.GetCustomAttribute<ApiFieldAttribute>();
-                if (fieldAttr == null) continue;
 
                 string memberPath = string.IsNullOrEmpty(currentPath) ? prop.Name : $"{currentPath}.{prop.Name}";
 
-                // NXC106: 安全红线：加密字段必须锁定路径
-                if (fieldAttr.IsEncrypted && string.IsNullOrEmpty(fieldAttr.Name))
+                // 【强制一】加密字段必须显式锁定 Name（宪法 011 - 加密数据的"历史属性"）
+                if (fieldAttr?.IsEncrypted == true && string.IsNullOrEmpty(fieldAttr.Name))
                 {
                     report.Add(ContractDiagnostic.Create(rootContractName, "NXC106",
                         propertyName: prop.Name,
@@ -165,24 +199,18 @@ namespace NexusContract.Core.Reflection
                         contextArgs: new object[] { type.Name, prop.Name }));
                 }
 
-                Type propType = GetEffectiveType(prop.PropertyType);
-
-                // 跳过基元类型
-                if (propType.IsPrimitive || propType == typeof(string) || typeof(IDictionary).IsAssignableFrom(propType))
-                    continue;
-
-                // NXC107: 嵌套对象路径锁定检查
-                if (TypeUtilities.IsComplexType(propType))
+                // 【强制二】复杂对象在第 2+ 层必须显式锁定 Name（宪法 001 - 递归边界）
+                if (isComplexType && fieldAttr != null && currentDepth > 1 && string.IsNullOrEmpty(fieldAttr.Name))
                 {
-                    if (currentDepth > 1 && string.IsNullOrEmpty(fieldAttr.Name))
-                    {
-                        report.Add(ContractDiagnostic.Create(rootContractName, "NXC107",
-                            propertyName: prop.Name,
-                            propertyPath: memberPath,
-                            contextArgs: new object[] { type.Name, prop.Name, currentDepth }));
-                    }
+                    report.Add(ContractDiagnostic.Create(rootContractName, "NXC107",
+                        propertyName: prop.Name,
+                        propertyPath: memberPath,
+                        contextArgs: new object[] { type.Name, prop.Name, currentDepth }));
+                }
 
-                    // 继续递归探测（传递当前路径）
+                // 只有复杂对象需要继续递归探测
+                if (isComplexType)
+                {
                     var childVisited = new HashSet<Type>(visited);
                     ValidateFieldsRecursive(propType, currentDepth + 1, childVisited, memberPath, report, rootContractName);
                 }
@@ -191,6 +219,8 @@ namespace NexusContract.Core.Reflection
 
         /// <summary>
         /// Fail-Fast 递归验证（用于运行时懒加载）
+        /// 
+        /// 同样遵循三级阶梯策略：只对加密字段和复杂对象进行强制检查
         /// </summary>
         private static void ValidateFieldsRecursiveFailFast(
             Type type,
@@ -230,11 +260,21 @@ namespace NexusContract.Core.Reflection
             var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
             foreach (var prop in properties)
             {
-                var fieldAttr = prop.GetCustomAttribute<ApiFieldAttribute>();
-                if (fieldAttr == null) continue;
+                Type propType = GetEffectiveType(prop.PropertyType);
 
-                // NXC106: 安全红线：加密字段必须锁定路径
-                if (fieldAttr.IsEncrypted && string.IsNullOrEmpty(fieldAttr.Name))
+                // 基元类型、字符串和字典：自动推导，无需 [ApiField]
+                if (propType.IsPrimitive || propType == typeof(string))
+                    continue;
+
+                if (typeof(System.Collections.IDictionary).IsAssignableFrom(propType))
+                    continue;
+
+                // 只对复杂对象进行强制检查
+                bool isComplexType = TypeUtilities.IsComplexType(propType);
+                var fieldAttr = prop.GetCustomAttribute<ApiFieldAttribute>();
+
+                // 【强制一】加密字段必须显式锁定 Name
+                if (fieldAttr?.IsEncrypted == true && string.IsNullOrEmpty(fieldAttr.Name))
                     throw new ContractIncompleteException(
                         typeName,
                         ContractDiagnosticRegistry.NXC106,
@@ -242,28 +282,19 @@ namespace NexusContract.Core.Reflection
                         prop.Name ?? "Unknown"
                     );
 
-                Type propType = GetEffectiveType(prop.PropertyType);
+                // 【强制二】复杂对象在第 2+ 层必须显式锁定 Name
+                if (isComplexType && fieldAttr != null && currentDepth > 1 && string.IsNullOrEmpty(fieldAttr.Name))
+                    throw new ContractIncompleteException(
+                        typeName,
+                        ContractDiagnosticRegistry.NXC107,
+                        type.Name ?? "Unknown",
+                        prop.Name ?? "Unknown",
+                        currentDepth
+                    );
 
-                // 跳过基元类型和字符串
-                if (propType.IsPrimitive || propType == typeof(string))
-                    continue;
-
-                // 跳过 IDictionary（直接透传）
-                if (typeof(System.Collections.IDictionary).IsAssignableFrom(propType))
-                    continue;
-
-                // NXC107: 复杂对象检查
-                if (TypeUtilities.IsComplexType(propType))
+                // 继续递归（仅限复杂对象）
+                if (isComplexType)
                 {
-                    if (currentDepth > 1 && string.IsNullOrEmpty(fieldAttr.Name))
-                        throw new ContractIncompleteException(
-                            typeName,
-                            ContractDiagnosticRegistry.NXC107,
-                            type.Name ?? "Unknown",
-                            prop.Name ?? "Unknown",
-                            currentDepth
-                        );
-
                     var childVisited = new HashSet<Type>(visited);
                     string childPath = !string.IsNullOrEmpty(path)
                             ? $"{path} → {prop.Name}"

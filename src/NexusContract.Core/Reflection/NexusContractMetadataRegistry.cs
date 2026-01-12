@@ -243,6 +243,10 @@ namespace NexusContract.Core.Reflection
             }
 
             // ========== 阶段 2：深度审计（Auditing）==========
+            // 三级阶梯策略：
+            // 【Tier 1 - 约定】无 [ApiField] 的普通字段 → 自动推导，无需特殊处理
+            // 【Tier 2 - 强制】有 [ApiField] 的字段 → 审计其约束（加密、复杂对象）
+            // 【Tier 3 - 防御】生成完整的字段映射表，包括自动推导字段
             var properties = new List<PropertyMetadata>();
             var auditedProps = new List<PropertyAuditResult>();
 
@@ -263,7 +267,13 @@ namespace NexusContract.Core.Reflection
                 }
 
                 var fieldAttr = prop.GetCustomAttribute<ApiFieldAttribute>();
-                if (fieldAttr == null) continue;
+
+                // 【第 1 层 - 约定】无 [ApiField] 的字段：允许自动推导
+                // 创建默认的 ApiFieldAttribute（无加密、无特殊约束）
+                if (fieldAttr == null)
+                {
+                    fieldAttr = new ApiFieldAttribute(); // Name = null, IsRequired = false, IsEncrypted = false
+                }
 
                 try
                 {
@@ -273,7 +283,7 @@ namespace NexusContract.Core.Reflection
 
                     System.Diagnostics.Debug.WriteLine($"[Audit] {type.Name}.{prop.Name}:");
                     System.Diagnostics.Debug.WriteLine($"  - Type: {prop.PropertyType.Name}");
-                    System.Diagnostics.Debug.WriteLine($"  - ApiField.Name: {fieldAttr.Name ?? "<null>"}");
+                    System.Diagnostics.Debug.WriteLine($"  - ApiField.Name: {fieldAttr.Name ?? "<auto-derive>"}");
                     System.Diagnostics.Debug.WriteLine($"  - IsEncrypted: {fieldAttr.IsEncrypted}");
                     System.Diagnostics.Debug.WriteLine($"  - IsComplexType: {auditResult.IsComplexType}");
                     System.Diagnostics.Debug.WriteLine($"  - IsEncryptedWithoutName: {auditResult.IsEncryptedWithoutName}");
