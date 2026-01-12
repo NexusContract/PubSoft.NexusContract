@@ -584,7 +584,7 @@ public async Task<TResponse> ExecuteAsync<TRequest, TResponse>(
     catch (InvalidCastException ex)
     {
         throw new HydrationException(
-            "NXC401",
+            "NXC302",
             new { Message = ex.Message, Type = typeof(TResponse).Name });
     }
     catch (Exception ex)
@@ -949,15 +949,7 @@ public class ProviderSettings
 //   NXC302: 回填时类型转换失败
 //   NXC303: 回填时集合大小超限
 //
-// NXC4xx: 硬件层错误（HSM/加密机故障）
-//   NXC401: HSM 签名超时
-//   NXC402: HSM 不可用
-//   NXC403: HSM 配额超限
-//
 // NXC5xx: 框架内部错误（自 Phase 1 后全面使用反射缓存）
-//   NXC501: 表达式树编译失败（已弃用，仅向后兼容）
-//   NXC502: 类型转换失败（强力转换）
-//   NXC503: 反射操作失败（属性访问等）
 //   NXC504: 反射缓存元数据构建失败（宪法 007 启动期）
 //   NXC505: 反射缓存委托执行失败（宪法 007 运行期）
 //   NXC999: 未知框架错误（兜底）
@@ -1055,7 +1047,7 @@ public async Task<TResponse> ExecuteAsync<TRequest, TResponse>(...)
     catch (JsonException ex)
     {
         throw new HydrationException(
-            "NXC401",  // ← 响应反序列化失败
+            "NXC302",  // ← 响应反序列化失败
             new { Message = ex.Message, ResponseJson = responseJson });
     }
 }
