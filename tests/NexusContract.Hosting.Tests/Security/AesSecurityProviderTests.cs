@@ -137,7 +137,8 @@ public class AesSecurityProviderTests
         string invalidCipher = "not-base64!!!";
 
         // Act & Assert
-        Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
+        // InvalidBase64 throws FormatException (from Convert.FromBase64String)
+        Assert.Throws<FormatException>(() =>
             provider.Decrypt(invalidCipher));
     }
 
