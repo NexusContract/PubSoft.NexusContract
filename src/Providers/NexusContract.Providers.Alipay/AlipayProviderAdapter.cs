@@ -80,6 +80,21 @@ namespace NexusContract.Providers.Alipay
         private readonly INexusTransport _transport;
         private readonly NexusGateway _gateway;
         private readonly INamingPolicy _namingPolicy;
+        
+        /// <summary>
+        /// 配置缓存（符合宪法 010：Provider 无状态单例）
+        /// 
+        /// 设计约束：
+        /// - 仅缓存轻量级 AlipayProviderConfig 对象（~1KB）
+        /// - 不缓存重量级 AlipayProvider 实例（包含 INexusTransport 依赖）
+        /// - 缓存键由租户唯一标识（AppId:MerchantId）确定
+        /// - ClearConfigCache 方法支持配置热更新（由外部调用管理）
+        /// - 线程安全：ConcurrentDictionary.GetOrAdd 原子操作
+        /// 
+        /// 宪法 010 合规性：
+        /// Provider 实例本身（this）保持完全无状态。租户状态（配置）通过方法参数传入，
+        /// 不在实例字段中维护。仅配置对象缓存是为了避免重复转换，不违反无状态原则。
+        /// </summary>
         private readonly ConcurrentDictionary<string, AlipayProviderConfig> _configCache = new ConcurrentDictionary<string, AlipayProviderConfig>(StringComparer.Ordinal);
 
         public AlipayProviderAdapter(
@@ -161,13 +176,17 @@ namespace NexusContract.Providers.Alipay
         }
 
         /// <summary>
-        /// 获取或创建支付宝配置（带缓存）
+        /// 获取或创建支付宝配置（带缓存，符合宪法 010）
         /// 
         /// 缓存策略：
         /// - 缓存键：{AppId}:{MerchantId}（租户唯一标识）
-        /// - 缓存对象：AlipayProviderConfig（~1KB）
-        /// - 线程安全：ConcurrentDictionary.GetOrAdd
-        /// - 无过期策略：配置通常不变，除非手动刷新
+        /// - 缓存对象：AlipayProviderConfig（~1KB，轻量级）
+        /// - 线程安全：ConcurrentDictionary.GetOrAdd 原子操作
+        /// - 无过期策略：配置通常不变，除非手动调用 ClearConfigCache 刷新
+        /// 
+        /// 宪法 010 合规说明：
+        /// 配置转换缓存是**性能优化手段**，不违反"Provider 无状态单例"原则。
+        /// AlipayProvider 实例本身每次创建新对象（见 ExecuteAsync），不在适配器中缓存。
         /// 
         /// 性能优化：
         /// - 首次：~10μs（配置转换 + 字典插入）
@@ -237,7 +256,16 @@ namespace NexusContract.Providers.Alipay
         }
 
         /// <summary>
-        /// 清除配置缓存（用于配置热更新）
+        /// 清除配置缓存（用于配置热更新，支持宪法 010）
+        /// 
+        /// 使用场景：
+        /// - Redis 中配置变更时，调用此方法清除缓存
+        /// - 由外部配置管理服务负责调用（例如 HybridConfigResolver）
+        /// - 清除后下一次请求将重新转换配置（性能开销可接受）
+        /// 
+        /// 宪法 010 合规说明：
+        /// 清除缓存后，Provider 实例本身仍保持无状态。配置更新是透明的，
+        /// 由 ExecuteAsync 在下一次调用时自动获取新配置。
         /// </summary>
         /// <param name="appId">应用 ID</param>
         /// <param name="merchantId">商户 ID</param>

@@ -929,39 +929,39 @@ public class ProviderSettings
 **具体约束：**
 
 ```csharp
-// ========== NXC 码体系 ==========
-// NXC1xx: Validate 阶段（Contract 验证）
-//   NXC101: Contract 字段验证失败
-//   NXC102: Contract 类型不匹配
-//   NXC103: Contract 循环引用
-//   NXC104: 加密字段缺少 [Encrypt] 标注
-//   NXC105: 必填字段为空
-//   NXC106: 字段值超过长度限制
-//   NXC107: 字段值超过嵌套深度限制
+// ========== NXC 码体系（Complete Diagnostic Taxonomy） ==========
+// NXC1xx: 静态结构验证（启动时，代码质量问题）
+//   NXC101: 缺失 [ApiOperation] 属性
+//   NXC102: Operation 标识为空
+//   NXC103: OneWay 响应类型非 EmptyResponse
+//   NXC104: 嵌套深度超过 MaxDepth 物理边界
+//   NXC105: 检测到循环引用
+//   NXC106: 加密字段未显式锁定 Name
+//   NXC107: 嵌套对象（2+ 层）未显式锁定 Name
 //
-// NXC2xx: Configuration 阶段
-//   NXC201: 配置不存在（ProfileId 未找到）
-//   NXC202: 配置格式错误（JSON 解析失败）
-//   NXC203: 配置密钥已过期
+// NXC2xx: 运行期执行守卫（执行时，配置/输入问题）
+//   NXC201: 必需字段为 null（投影被拒）
+//   NXC202: 加密字段但 Encryptor 未注入
+//   NXC203: 投影深度溢出（防御性）
 //
-// NXC3xx: Execute 阶段（传输、签名）
-//   NXC301: HTTP 请求失败
-//   NXC302: 请求超时
-//   NXC303: 签名算法错误
-//   NXC304: 网络不可达
+// NXC3xx: 回填守卫（解析返回值时，脏数据问题）
+//   NXC301: 回填时必需字段缺失
+//   NXC302: 回填时类型转换失败
+//   NXC303: 回填时集合大小超限
 //
-// NXC4xx: Hydrate 阶段（反序列化）
-//   NXC401: 响应反序列化失败
-//   NXC402: 响应字段类型不匹配
-//   NXC403: 响应包含未知字段
+// NXC4xx: 硬件层错误（HSM/加密机故障）
+//   NXC401: HSM 签名超时
+//   NXC402: HSM 不可用
+//   NXC403: HSM 配额超限
 //
-// NXC5xx: Provider 层
-//   NXC501: Provider 不支持该操作
-//   NXC502: Provider 返回业务错误（来自支付宝/微信）
-//
-// NXC99x: 框架内部
-//   NXC991: 元数据编译失败
-//   NXC999: 未知框架错误
+// NXC5xx: 框架内部错误（自 Phase 1 后全面使用反射缓存）
+//   NXC501: 表达式树编译失败（已弃用，仅向后兼容）
+//   NXC502: 类型转换失败（强力转换）
+//   NXC503: 反射操作失败（属性访问等）
+//   NXC504: 反射缓存元数据构建失败（宪法 007 启动期）
+//   NXC505: 反射缓存委托执行失败（宪法 007 运行期）
+//   NXC999: 未知框架错误（兜底）
+```
 
 // ========== 异常体系 ==========
 public abstract class NexusException : Exception

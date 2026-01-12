@@ -35,15 +35,9 @@ namespace NexusContract.Abstractions.Exceptions
         public const string NXC302 = "NXC302"; // 回填时类型转换失败
         public const string NXC303 = "NXC303"; // 回填时集合大小超限
 
-        // --- 4xx: 硬件层错误（HSM/加密机） ---
-        public const string NXC401 = "NXC401"; // HSM 签名超时
-        public const string NXC402 = "NXC402"; // HSM 不可用
-        public const string NXC403 = "NXC403"; // HSM 配额超限
-
-        // --- 5xx: 框架内部错误（代码生成/编译问题） ---
-        public const string NXC501 = "NXC501"; // 表达式树编译失败
-        public const string NXC502 = "NXC502"; // 类型转换失败
-        public const string NXC503 = "NXC503"; // 反射操作失败
+        // --- 5xx: 框架内部错误（反射缓存相关） ---
+        public const string NXC504 = "NXC504"; // 反射缓存元数据构建失败
+        public const string NXC505 = "NXC505"; // 反射缓存投影/回填委托执行失败
         public const string NXC999 = "NXC999"; // 未知框架错误（兜底）
 
         // --- 中文模板 (zh-CN) ---
@@ -115,34 +109,18 @@ namespace NexusContract.Abstractions.Exceptions
                 "  建议: 启用分页或流式处理大数据集。"
             },
             {
-                NXC401,
-                "[硬件层·NXC401] 硬件加密机（HSM）签名超时。\n" +
-                "  调查: 联系三方服务商检查 HSM 运行状态。"
+                NXC504,
+                "[框架·NXC504] 反射缓存元数据构建失败（宪法 007 执行错误）。\n" +
+                "  现象: 框架在启动期试图冻结契约元数据时失败。\n" +
+                "  可能原因: {0}\n" +
+                "  调查: 检查契约类型是否满足宪法 001-012 的约束，特别是字段访问权限、循环引用。"
             },
             {
-                NXC402,
-                "[硬件层·NXC402] 硬件加密机（HSM）不可用。\n" +
-                "  立即告警: 联系三方进行故障排查，可能需要切换备用 HSM。"
-            },
-            {
-                NXC403,
-                "[硬件层·NXC403] 硬件加密机（HSM）配额已满（并发签名数达到上限）。\n" +
-                "  建议: 降低并发量或申请增加 HSM 实例。"
-            },
-            {
-                NXC501,
-                "[框架·NXC501] 表达式树编译失败。\n" +
-                "  调查: 检查契约类型是否支持代码生成，可能需要简化类型结构。"
-            },
-            {
-                NXC502,
-                "[框架·NXC502] 类型转换失败。\n" +
-                "  调查: 检查属性类型是否与预期匹配，可能存在类型不兼容问题。"
-            },
-            {
-                NXC503,
-                "[框架·NXC503] 反射操作失败。\n" +
-                "  调查: 检查类型定义是否正确，可能存在属性访问权限问题。"
+                NXC505,
+                "[框架·NXC505] 反射缓存投影/回填委托执行失败（宪法 007 运行时错误）。\n" +
+                "  现象: 在执行投影或回填时，反射缓存委托抛出异常。\n" +
+                "  可能原因: {0}\n" +
+                "  调查: 检查运行时数据是否与契约结构匹配，可能需要启用诊断模式。"
             },
             {
                 NXC999,
@@ -221,34 +199,16 @@ namespace NexusContract.Abstractions.Exceptions
                 "  Recommendation: Enable pagination or stream processing for large datasets."
             },
             {
-                NXC401,
-                "[Hardware·NXC401] Hardware Security Module (HSM) signing timeout.\n" +
-                "  Investigation: Contact third-party service provider to check HSM status."
+                NXC504,
+                "[Framework·NXC504] Reflection cache metadata construction failure (Constitutional Law 007).\n" +
+                "  Phenomenon: Framework failed to freeze contract metadata during startup.\n" +
+                "  Details: {0}"
             },
             {
-                NXC402,
-                "[Hardware·NXC402] Hardware Security Module (HSM) unavailable.\n" +
-                "  Critical Alert: Contact third-party for troubleshooting, consider switching to backup HSM."
-            },
-            {
-                NXC403,
-                "[Hardware·NXC403] Hardware Security Module (HSM) quota exceeded (concurrent signing limit reached).\n" +
-                "  Recommendation: Reduce concurrency or request additional HSM instances."
-            },
-            {
-                NXC501,
-                "[Framework·NXC501] Expression tree compilation failed.\n" +
-                "  Investigation: Check if contract type supports code generation, may need to simplify type structure."
-            },
-            {
-                NXC502,
-                "[Framework·NXC502] Type conversion failed.\n" +
-                "  Investigation: Check if property types match expectations, possible type incompatibility."
-            },
-            {
-                NXC503,
-                "[Framework·NXC503] Reflection operation failed.\n" +
-                "  Investigation: Check type definition correctness, possible property access permission issues."
+                NXC505,
+                "[Framework·NXC505] Reflection cache delegate execution failure (Constitutional Law 007).\n" +
+                "  Phenomenon: Reflection cache delegate failed during projection or hydration.\n" +
+                "  Details: {0}"
             },
             {
                 NXC999,
@@ -330,10 +290,8 @@ namespace NexusContract.Abstractions.Exceptions
                 NXC201 or NXC202 => "ERROR",                                   // 运行时需要处理
                 NXC203 => "WARNING",                                           // 防御检查
                 NXC301 or NXC302 or NXC303 => "ERROR",                        // 回填失败需要处理
-                NXC401 => "ERROR",                                            // HSM 超时
-                NXC402 => "CRITICAL",                                         // HSM 不可用
-                NXC403 => "WARNING",                                          // HSM 配额
-                NXC501 or NXC502 or NXC503 => "ERROR",                        // 框架内部错误
+                NXC504 => "CRITICAL",                                         // 反射缓存元数据构建失败（启动期）
+                NXC505 => "ERROR",                                            // 反射缓存执行失败（运行期）
                 NXC999 => "CRITICAL",                                         // 未知框架错误
                 _ => "UNKNOWN"
             };
