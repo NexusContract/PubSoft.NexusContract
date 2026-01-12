@@ -8,7 +8,9 @@ using System.Collections.Frozen;
 using System.Linq;
 using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Http;using NexusContract.Abstractions.Exceptions;using NexusContract.Abstractions.Policies;
+using Microsoft.Extensions.Http;
+using NexusContract.Abstractions.Exceptions;
+using NexusContract.Abstractions.Policies;
 using NexusContract.Core.Policies.Impl;
 
 namespace NexusContract.Client.DependencyInjection

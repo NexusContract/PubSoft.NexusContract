@@ -13,7 +13,7 @@ namespace NexusContract.Abstractions.Security
     /// 实现约束：
     /// - 必须使用强加密算法（AES256）
     /// - 主密钥必须从安全源获取（环境变量、Key Vault）
-    /// - 支持版本化（便于未来更换算法）
+    /// - 存储格式为 Base64 编码的 [IV(16)+Cipher]，版本迁移通过运维脚本执行数据迁移
     /// 
     /// 使用场景：
     /// - HybridConfigResolver 序列化配置到 Redis
@@ -25,9 +25,8 @@ namespace NexusContract.Abstractions.Security
         /// 加密明文
         /// </summary>
         /// <param name="plainText">明文字符串</param>
-        /// <returns>加密后的字符串（包含版本前缀）</returns>
+        /// <returns>加密后的字符串（Base64 编码的 IV+Cipher，无任何前缀）</returns>
         string Encrypt(string plainText);
-
         /// <summary>
         /// 解密密文
         /// </summary>

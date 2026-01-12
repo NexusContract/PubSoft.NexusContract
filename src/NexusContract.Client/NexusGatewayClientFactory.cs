@@ -37,7 +37,7 @@ namespace NexusContract.Client
         /// </summary>
         public NexusGatewayClient CreateClient(string operationKey, HttpClient httpClient)
         {
-NexusGuard.EnsureNonEmptyString(operationKey);
+            NexusGuard.EnsureNonEmptyString(operationKey);
 
             if (httpClient == null)
                 NexusGuard.EnsurePhysicalAddress(httpClient);
@@ -71,7 +71,7 @@ NexusGuard.EnsureNonEmptyString(operationKey);
             /// </summary>
             public Builder RegisterGateway(string providerKey, Uri gatewayUri)
             {
-NexusGuard.EnsureNonEmptyString(providerKey);
+                NexusGuard.EnsureNonEmptyString(providerKey);
 
                 if (gatewayUri == null)
                     NexusGuard.EnsurePhysicalAddress(gatewayUri);

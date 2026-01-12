@@ -60,7 +60,7 @@ public class NexusEngineTests
         var mockProvider = new Mock<IProvider>();
 
         // Act & Assert
-        Assert.Throws<ContractIncompleteException>(() => 
+        Assert.Throws<ContractIncompleteException>(() =>
             engine.RegisterProvider(null!, mockProvider.Object));
     }
 
@@ -72,7 +72,7 @@ public class NexusEngineTests
         var engine = new NexusEngine(mockResolver.Object);
 
         // Act & Assert
-        Assert.Throws<ContractIncompleteException>(() => 
+        Assert.Throws<ContractIncompleteException>(() =>
             engine.RegisterProvider("TestProvider", null!));
     }
 
@@ -131,7 +131,7 @@ public class NexusEngineTests
         var engine = new NexusEngine(mockResolver.Object);
 
         // Act & Assert
-        await Assert.ThrowsAsync<ContractIncompleteException>(() => 
+        await Assert.ThrowsAsync<ContractIncompleteException>(() =>
             engine.ExecuteAsync<TestResponse>(null!, "Alipay", "app123"));
     }
 
@@ -144,7 +144,7 @@ public class NexusEngineTests
         var mockRequest = new Mock<IApiRequest<TestResponse>>();
 
         // Act & Assert
-        await Assert.ThrowsAsync<ContractIncompleteException>(() => 
+        await Assert.ThrowsAsync<ContractIncompleteException>(() =>
             engine.ExecuteAsync(mockRequest.Object, null!, "app123"));
     }
 
@@ -157,7 +157,7 @@ public class NexusEngineTests
         var mockRequest = new Mock<IApiRequest<TestResponse>>();
 
         // Act & Assert
-        await Assert.ThrowsAsync<ContractIncompleteException>(() => 
+        await Assert.ThrowsAsync<ContractIncompleteException>(() =>
             engine.ExecuteAsync(mockRequest.Object, "Alipay", null!));
     }
 
@@ -168,16 +168,16 @@ public class NexusEngineTests
         var mockResolver = new Mock<IConfigurationResolver>();
         var mockConfig = new Mock<IProviderConfiguration>();
         mockConfig.Setup(c => c.ProviderName).Returns("Alipay");
-        
+
         mockResolver.Setup(r => r.ResolveAsync("Alipay", "app123", It.IsAny<CancellationToken>()))
             .ReturnsAsync(mockConfig.Object);
 
         var engine = new NexusEngine(mockResolver.Object);
-        
+
         var mockRequest = new Mock<IApiRequest<TestResponse>>();
 
         // Act & Assert
-        var ex = await Assert.ThrowsAsync<ContractIncompleteException>(() => 
+        var ex = await Assert.ThrowsAsync<ContractIncompleteException>(() =>
             engine.ExecuteAsync(mockRequest.Object, "Alipay", "app123"));
         Assert.Contains("not registered", ex.Message);
     }

@@ -16,7 +16,7 @@ namespace NexusContract.Hosting.Tests.Security;
 /// - 无效密钥格式
 /// - 密钥长度校验
 /// - 空输入处理
-/// - 版本前缀验证
+/// - 格式验证（密文为 Base64 编码的 IV+密文）
 /// - 加密确定性（每次加密应不同，因 IV 随机）
 /// </summary>
 public class AesSecurityProviderTests
@@ -69,7 +69,7 @@ public class AesSecurityProviderTests
     }
 
     [Fact]
-    public void Encrypt_ValidInput_ShouldReturnVersionPrefix()
+    public void Encrypt_ValidInput_ShouldReturnBase64Cipher()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -80,7 +80,7 @@ public class AesSecurityProviderTests
         string encrypted = provider.Encrypt(plainText);
 
         // Assert
-        Assert.StartsWith("v1:", encrypted);
+        Assert.DoesNotContain(':', encrypted);
         Assert.NotEqual(plainText, encrypted);
     }
 
@@ -129,15 +129,15 @@ public class AesSecurityProviderTests
     }
 
     [Fact]
-    public void Decrypt_MissingVersionPrefix_ShouldThrow()
+    public void Decrypt_InvalidBase64_ShouldThrow()
     {
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var provider = new AesSecurityProvider(masterKey);
-        string invalidCipher = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        string invalidCipher = "not-base64!!!";
 
         // Act & Assert
-        Assert.Throws<System.Security.Cryptography.CryptographicException>(() => 
+        Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
             provider.Decrypt(invalidCipher));
     }
 
@@ -147,10 +147,10 @@ public class AesSecurityProviderTests
         // Arrange
         string masterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var provider = new AesSecurityProvider(masterKey);
-        string tooShort = "v1:" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(8)); // Less than 16 bytes
+        string tooShort = Convert.ToBase64String(RandomNumberGenerator.GetBytes(8)); // Less than 16 bytes
 
         // Act & Assert
-        Assert.Throws<System.Security.Cryptography.CryptographicException>(() => 
+        Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
             provider.Decrypt(tooShort));
     }
 
@@ -204,7 +204,7 @@ public class AesSecurityProviderTests
         string encrypted = provider1.Encrypt(plainText);
 
         // Assert - Decrypting with wrong key should fail
-        Assert.Throws<System.Security.Cryptography.CryptographicException>(() => 
+        Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
             provider2.Decrypt(encrypted));
     }
 }

@@ -168,7 +168,7 @@ namespace NexusContract.Hosting.Configuration
             NexusGuard.EnsurePhysicalAddress(memoryCache);
             NexusGuard.EnsurePhysicalAddress(securityProvider);
             NexusGuard.EnsurePhysicalAddress(logger);
-            
+
             _redis = redis;
             _memoryCache = memoryCache;
             _securityProvider = securityProvider;
@@ -407,14 +407,14 @@ namespace NexusContract.Hosting.Configuration
             {
                 // 滑动过期：只要有业务在处理，缓存就持续有效（消除卡点）
                 SlidingExpiration = _l1Ttl, // 默认 24 小时
-                
+
                 // 绝对过期：作为"僵尸数据"的最终清理防线（30天）
                 AbsoluteExpirationRelativeToNow = DefaultL1AbsoluteExpiration,
-                
+
                 // 最高优先级：防止内存不足时配置被意外剔除
                 // 理由：配置是业务的"生命线"，宁可牺牲其他缓存也要保留
                 Priority = CacheItemPriority.NeverRemove,
-                
+
                 Size = 1 // 用于 MemoryCache 大小限制
             });
         }
@@ -495,7 +495,7 @@ namespace NexusContract.Hosting.Configuration
                 if (refreshData == null) return;
 
                 // 验证必需字段（ProviderName 和 ProfileId 禁止为空）
-                if (string.IsNullOrWhiteSpace(refreshData.ProviderName) || 
+                if (string.IsNullOrWhiteSpace(refreshData.ProviderName) ||
                     string.IsNullOrWhiteSpace(refreshData.ProfileId))
                 {
                     return; // 静默忽略无效消息（缺少必需字段）

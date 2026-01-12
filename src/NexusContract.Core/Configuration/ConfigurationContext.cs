@@ -69,8 +69,8 @@ namespace NexusContract.Core.Configuration
         /// </summary>
         // 默认不分配内存，只有用到时才创建
         private IDictionary<string, object>? _metadata;
-        public IDictionary<string, object> Metadata 
-        { 
+        public IDictionary<string, object> Metadata
+        {
             get => _metadata ??= new Dictionary<string, object>();
             set => _metadata = value;
         }

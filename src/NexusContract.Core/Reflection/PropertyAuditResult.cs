@@ -65,7 +65,7 @@ namespace NexusContract.Core.Reflection
         {
             NexusGuard.EnsurePhysicalAddress(propertyInfo);
             NexusGuard.EnsurePhysicalAddress(apiField);
-            
+
             PropertyInfo = propertyInfo;
             ApiField = apiField;
             IsEncryptedWithoutName = isEncryptedWithoutName;

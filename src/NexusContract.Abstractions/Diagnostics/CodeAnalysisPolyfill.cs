@@ -47,21 +47,17 @@ namespace System.Diagnostics.CodeAnalysis
     /// - 仅在编译器支持的版本（C# 10+）下起作用
     /// - 对于较旧的编译器，默认参数值 "" 保证向后兼容
     /// </summary>
+    /// <remarks>
+    /// 初始化新的 CallerArgumentExpressionAttribute 实例。
+    /// </remarks>
+    /// <param name="parameterName">目标参数的名称，其表达式将被捕获。</param>
     [AttributeUsage(AttributeTargets.Parameter, Inherited = false)]
-    internal sealed class CallerArgumentExpressionAttribute : Attribute
+    internal sealed class CallerArgumentExpressionAttribute(string parameterName) : Attribute
     {
-        /// <summary>
-        /// 初始化新的 CallerArgumentExpressionAttribute 实例。
-        /// </summary>
-        /// <param name="parameterName">目标参数的名称，其表达式将被捕获。</param>
-        public CallerArgumentExpressionAttribute(string parameterName)
-        {
-            ParameterName = parameterName;
-        }
 
         /// <summary>
         /// 获取目标参数的名称。
         /// </summary>
-        public string ParameterName { get; }
+        public string ParameterName { get; } = parameterName;
     }
 }

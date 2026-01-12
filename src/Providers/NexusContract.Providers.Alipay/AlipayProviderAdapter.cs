@@ -89,7 +89,7 @@ namespace NexusContract.Providers.Alipay
         {
             NexusGuard.EnsurePhysicalAddress(transport);
             NexusGuard.EnsurePhysicalAddress(gateway);
-            
+
             _transport = transport;
             _gateway = gateway;
             _namingPolicy = namingPolicy ?? new SnakeCaseNamingPolicy();

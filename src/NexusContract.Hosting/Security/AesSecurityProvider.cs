@@ -27,7 +27,7 @@ namespace NexusContract.Hosting.Security
     /// 安全约束：
     /// - 主密钥来源：环境变量 NEXUS_MASTER_KEY
     /// - IV 随机生成：每次加密使用不同 IV（防止模式攻击）
-    /// - 版本前缀：v1:（便于未来算法升级）
+    /// - 单一标准：所有加密数据存储为 Base64 编码的密文，密钥升级通过运维脚本完成数据迁移（代码不参与版本判断）
     /// 
     /// 使用场景：
     /// - Redis L2 缓存中的 PrivateKey 加密
@@ -36,7 +36,6 @@ namespace NexusContract.Hosting.Security
     public sealed class AesSecurityProvider : ISecurityProvider
     {
         private readonly byte[] _masterKey;
-        private const string VersionPrefix = "v1:";
 
         /// <summary>
         /// 构造 AES 安全提供程序
@@ -69,12 +68,12 @@ namespace NexusContract.Hosting.Security
             byte[] plainBytes = Encoding.UTF8.GetBytes(plainText);
             byte[] cipherBytes = encryptor.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
 
-            // 格式: v1:[IV(16字节)][密文]
+            // 格式: [IV(16字节)][密文]（Base64 编码）
             byte[] result = new byte[aes.IV.Length + cipherBytes.Length];
             Buffer.BlockCopy(aes.IV, 0, result, 0, aes.IV.Length);
             Buffer.BlockCopy(cipherBytes, 0, result, aes.IV.Length, cipherBytes.Length);
 
-            return VersionPrefix + Convert.ToBase64String(result);
+            return Convert.ToBase64String(result);
         }
 
         /// <summary>
@@ -85,12 +84,8 @@ namespace NexusContract.Hosting.Security
             if (string.IsNullOrEmpty(cipherText))
                 return string.Empty;
 
-            // 移除版本前缀
-            if (!cipherText.StartsWith(VersionPrefix, StringComparison.Ordinal))
-                throw new CryptographicException("Invalid cipher text format: missing version prefix");
-
-            string base64Cipher = cipherText.Substring(VersionPrefix.Length);
-            byte[] fullCipher = Convert.FromBase64String(base64Cipher);
+            // 单一标准：直接作为 Base64 编码的 [IV+密文]
+            byte[] fullCipher = Convert.FromBase64String(cipherText);
 
             if (fullCipher.Length < 16)
                 throw new CryptographicException("Invalid cipher text: too short");

@@ -60,7 +60,7 @@ namespace NexusContract.Providers.Alipay
         {
             NexusGuard.EnsurePhysicalAddress(config);
             NexusGuard.EnsurePhysicalAddress(transport);
-            
+
             _config = config;
             _transport = transport;
 
@@ -84,7 +84,7 @@ namespace NexusContract.Providers.Alipay
         {
             NexusGuard.EnsurePhysicalAddress(config);
             NexusGuard.EnsurePhysicalAddress(httpClient);
-            
+
             _config = config;
             _httpClient = httpClient;
 

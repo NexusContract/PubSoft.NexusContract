@@ -31,7 +31,7 @@ namespace NexusContract.Core.Reflection
             NexusGuard.EnsureNonEmptyString(contractName);
             NexusGuard.EnsureNonEmptyString(errorCode);
             NexusGuard.EnsureNonEmptyString(message);
-            
+
             ContractName = contractName;
             ErrorCode = errorCode;
             Message = message;

@@ -99,7 +99,7 @@ namespace NexusContract.Providers.Alipay
             NexusGuard.EnsurePhysicalAddress(config);
             NexusGuard.EnsurePhysicalAddress(gateway);
             NexusGuard.EnsurePhysicalAddress(transport);
-            
+
             _config = config;
             _gateway = gateway;
             _transport = transport;
@@ -124,7 +124,7 @@ namespace NexusContract.Providers.Alipay
             NexusGuard.EnsurePhysicalAddress(config);
             NexusGuard.EnsurePhysicalAddress(gateway);
             NexusGuard.EnsurePhysicalAddress(httpClient);
-            
+
             _config = config;
             _gateway = gateway;
             _httpClient = httpClient;

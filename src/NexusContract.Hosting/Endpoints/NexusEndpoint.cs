@@ -67,9 +67,9 @@ public abstract class NexusEndpoint<TRequest, TResponse>(INexusEngine engine)
     {
         // 1. 物理寻址提取 (宪法 002) - 路径不匹配直接由框架返回 404，
         // 逻辑层只负责提取。若缺少关键参数，直接抛出 NXC 结构化诊断码。
-        var provider = Route<string>("provider");
-        var profileId = Route<string>("profileId");
-        
+        string? provider = Route<string>("provider");
+        string? profileId = Route<string>("profileId");
+
         // 物理寻址卫哨：确保两个参数都完整（失败则抛出 NXC201）
         NexusGuard.EnsurePhysicalAddress(provider, profileId, nameof(NexusEndpoint<TRequest, TResponse>));
 

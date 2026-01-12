@@ -64,7 +64,7 @@ namespace NexusContract.Hosting.Yarp
             NexusGuard.EnsurePhysicalAddress(httpClient);
             NexusGuard.EnsurePhysicalAddress(options);
             NexusGuard.EnsurePhysicalAddress(logger);
-            
+
             _httpClient = httpClient;
             _options = options.Value;
             _logger = logger;

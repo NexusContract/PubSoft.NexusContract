@@ -9,7 +9,6 @@ using System.Linq;
 using System.Reflection;
 using NexusContract.Abstractions.Attributes;
 using NexusContract.Abstractions.Exceptions;
-using NexusContract.Core.Reflection.Compilation;
 
 namespace NexusContract.Core.Reflection
 {
@@ -72,9 +71,6 @@ namespace NexusContract.Core.Reflection
 
         // 核心冷冻库：Key 是契约类型，Value 是冷冻后的元数据
         private readonly ConcurrentDictionary<Type, ContractMetadata> _cache = new();
-
-        // 表达式编译器（职责分离：元数据管理 vs 表达式编译）
-        private readonly IExpressionCompiler _compiler = ExpressionCompiler.Instance;
 
         private NexusContractMetadataRegistry() { }
 
@@ -309,102 +305,13 @@ namespace NexusContract.Core.Reflection
                 }
             }
 
-            // ========== 阶段 3：武装化（Armoring）==========
+            // ========== 阶段 3：冻结元数据（强制反射缓存路径）==========
+            // 不使用运行时编译器，确保系统确定性
+            // 设置投影器和回填器为 null，运行时将使用缓存反射路径
             Func<object, Abstractions.Policies.INamingPolicy, Abstractions.Security.IEncryptor?, Dictionary<string, object>>? projector = null;
             Func<IDictionary<string, object>, Abstractions.Policies.INamingPolicy, Abstractions.Security.IDecryptor?, object>? hydrator = null;
 
-            // 仅在没有致命错误时才尝试构建投影器和回填器
-            if (!report.HasCriticalErrors)
-            {
-                try
-                {
-                    System.Diagnostics.Debug.WriteLine($"[BuildMetadata] Building projector for {contractName} with {auditedProps.Count} audited properties");
-                    foreach (var ap in auditedProps)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"  - {ap.PropertyInfo.Name} ({ap.PropertyInfo.PropertyType.Name}): Name={ap.ApiField.Name ?? "<null>"}");
-                    }
-                    
-                    // 委托给表达式编译器（职责分离）
-                    projector = _compiler.CompileProjector(type, auditedProps.ToArray());
-                    System.Diagnostics.Debug.WriteLine($"[BuildMetadata] Projector built: {(projector != null ? "SUCCESS" : "FAILED")}");
-
-                    if (warmup && projector != null)
-                    {
-                        try
-                        {
-                            object? instance = Activator.CreateInstance(type);
-                            var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
-                            if (instance != null) projector(instance, dummyNaming, encryptor);
-                        }
-                        catch (Exception ex)
-                        {
-                            report.Add(new ContractDiagnostic(
-                                contractName,
-                                "NXC111",
-                                $"预热投影器失败: {ex.Message}",
-                                DiagnosticSeverity.Warning,
-                                propertyName: null,
-                                propertyPath: null,
-                                ex.Message
-                            ));
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    report.Add(new ContractDiagnostic(
-                        contractName,
-                        "NXC112",
-                        $"生成投影器失败: {ex.Message}",
-                        DiagnosticSeverity.Error,
-                        propertyName: null,
-                        propertyPath: null,
-                        ex.Message
-                    ));
-                }
-
-                // 构建 Hydrator（回填委托）
-                try
-                {
-                    // 委托给表达式编译器（职责分离）
-                    hydrator = _compiler.CompileHydrator(type, auditedProps.ToArray());
-
-                    if (warmup && hydrator != null)
-                    {
-                        try
-                        {
-                            var testDict = new Dictionary<string, object>();
-                            var dummyNaming = new Policies.Impl.SnakeCaseNamingPolicy();
-                            hydrator(testDict, dummyNaming, decryptor);
-                        }
-                        catch (Exception ex)
-                        {
-                            report.Add(new ContractDiagnostic(
-                                contractName,
-                                "NXC113",
-                                $"预热回填器失败: {ex.Message}",
-                                DiagnosticSeverity.Warning,
-                                propertyName: null,
-                                propertyPath: null,
-                                ex.Message
-                            ));
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    report.Add(new ContractDiagnostic(
-                        contractName,
-                        "NXC114",
-                        $"生成回填器失败: {ex.Message}",
-                        DiagnosticSeverity.Warning,
-                        propertyName: null,
-                        propertyPath: null,
-                        ex.Message
-                    ));
-                    // Hydrator 失败不应阻止元数据创建，可以 fallback 到反射
-                }
-            }
+            System.Diagnostics.Debug.WriteLine($"[BuildMetadata] Metadata frozen for {contractName} ({properties.Count} properties). Using reflection-based projection/hydration.");
 
             // 返回不可变对象（即使有错误也返回部分元数据，让调用方决定如何处理）
             return new ContractMetadata(type, opAttr!, properties.AsReadOnly(), projector, hydrator);

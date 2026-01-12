@@ -109,9 +109,9 @@ public abstract class AlipayEndpointBase<TRequest>(INexusEngine engine) : Endpoi
     {
         // 步骤1：物理寻址提取（宪法 002）
         // 路由不匹配由 FastEndpoints 框架返回 404，逻辑层只负责提取
-        var provider = Route<string>("provider");
-        var profileId = Route<string>("profileId");
-        
+        string? provider = Route<string>("provider");
+        string? profileId = Route<string>("profileId");
+
         // 物理寻址卫哨：确保两个参数都完整（失败则抛出 NXC201）
         NexusGuard.EnsurePhysicalAddress(provider, profileId, nameof(AlipayEndpointBase<TRequest>));
 

@@ -168,14 +168,14 @@ namespace NexusContract.Core.Hydration
                 return result;
 
             int index = 0;
-            foreach (var item in sourceList)
+            foreach (object? item in sourceList)
             {
                 try
                 {
                     if (item == null)
                         continue;
 
-                    var converted = ConvertValue(item, elementType, $"{fieldName}[{index}]", contractName);
+                    object converted = ConvertValue(item, elementType, $"{fieldName}[{index}]", contractName);
                     result.Add(converted);
                 }
                 catch (Exception ex)
